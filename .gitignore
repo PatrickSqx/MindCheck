@@ -8,29 +8,56 @@ build/
 dist/
 *.egg-info/
 .eggs/
+MANIFEST
 
 # Virtual environments
 .venv/
 venv/
 env/
 ENV/
+env.bak/
+venv.bak/
 
 # Testing
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
+.nox/
+nosetests.xml
+coverage.xml
+*.cover
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+.cursorignore
+.cursorindexingignore
 
 # Environment / secrets
 .env
-.env.local
+.envrc
 *.env
+
+# Type checkers
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+
+# Packaging
+.pybuilder/
+target/
+sdist/
+wheels/
+share/python-wheels/
+*.manifest
+*.spec
+pip-log.txt
 
 # OS
 .DS_Store
