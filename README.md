@@ -51,8 +51,8 @@ pip install mindcheck
 Or from source:
 
 ```bash
-git clone https://github.com/PatrickSqx/MindCheck.git
-cd MindCheck
+git clone https://github.com/PatrickSqx/-MindCheck.git
+cd -MindCheck
 pip install -e ".[dev]"
 ```
 
