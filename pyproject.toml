@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mindcheck"
+version = "0.1.0"
+description = "Analyse your AI conversation logs to measure cognitive engagement over time"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.0",                          # CLI framework
+    "sentence-transformers>=3.0",          # Tier 2: local embeddings
+    "scikit-learn>=1.4",                   # cosine similarity
+    "numpy>=1.26",                         # vector math
+    "rich>=13.0",                          # pretty terminal output
+    "anthropic>=0.25",                     # Tier 3: LLM fallback (optional)
+    "openai>=1.0",                         # Tier 3: LLM fallback (optional)
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+]
+
+[project.scripts]
+mindcheck = "mindcheck.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mindcheck"]

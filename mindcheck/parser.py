@@ -1,0 +1,311 @@
+"""
+Session parser — reads JSONL/JSON/SQLite from Claude, Cursor, Codex, Gemini.
+Extracts user messages only (AI responses are discarded for analysis).
+"""
+
+import json
+import os
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+
+@dataclass
+class Message:
+    role: str           # "user" or "assistant"
+    content: str
+    timestamp: Optional[datetime] = None
+
+
+@dataclass
+class Session:
+    id: str
+    tool: str           # "claude" | "cursor" | "codex" | "gemini"
+    file_path: Path
+    messages: list[Message] = field(default_factory=list)
+    created_at: Optional[datetime] = None
+
+    @property
+    def user_messages(self) -> list[Message]:
+        return [m for m in self.messages if m.role == "user"]
+
+    @property
+    def turn_count(self) -> int:
+        return len(self.user_messages)
+
+    @property
+    def total_user_chars(self) -> int:
+        return sum(len(m.content) for m in self.user_messages)
+
+    @property
+    def total_ai_chars(self) -> int:
+        return sum(len(m.content) for m in self.messages if m.role == "assistant")
+
+
+def get_known_directories() -> dict[str, list[Path]]:
+    """Return known session directories for each AI tool."""
+    home = Path.home()
+    appdata = Path(os.environ.get("APPDATA", home / "AppData" / "Roaming"))
+    localappdata = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local"))
+
+    return {
+        "Claude Code": [
+            home / ".claude" / "projects",
+        ],
+        "Cursor": [
+            appdata / "Cursor" / "User" / "workspaceStorage",
+            home / "Library" / "Application Support" / "Cursor" / "User" / "workspaceStorage",
+            home / ".config" / "Cursor" / "User" / "workspaceStorage",
+        ],
+        "Codex": [
+            home / ".codex",
+            localappdata / "Codex",
+        ],
+        "Gemini CLI": [
+            home / ".gemini",
+            home / ".config" / "gemini",
+        ],
+    }
+
+
+def auto_discover_sessions(window: str = "30d") -> list[Session]:
+    """Discover sessions from all known directories within the time window."""
+    days = _parse_window(window)
+    cutoff = datetime.now() - timedelta(days=days)
+    sessions = []
+
+    for tool, paths in get_known_directories().items():
+        for path in paths:
+            if not path.exists():
+                continue
+            sessions.extend(_scan_directory(path, tool, cutoff))
+
+    return sessions
+
+
+def discover_sessions(path: Path, cutoff: Optional[datetime] = None) -> list[Session]:
+    """Discover sessions from a specific directory."""
+    tool = _detect_tool(path)
+    return _scan_directory(path, tool, cutoff)
+
+
+def parse_session(file_path: Path) -> Optional[Session]:
+    """Parse a single session file."""
+    tool = _detect_tool(file_path)
+    suffix = file_path.suffix.lower()
+
+    try:
+        if suffix == ".jsonl":
+            return _parse_jsonl(file_path, tool)
+        elif suffix == ".json":
+            return _parse_json(file_path, tool)
+        elif suffix == ".db" or suffix == ".sqlite":
+            return _parse_sqlite(file_path, tool)
+    except Exception:
+        return None
+
+    return None
+
+
+# ── Internal helpers ──────────────────────────────────────────────────────────
+
+def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[Session]:
+    sessions = []
+    for f in path.rglob("*"):
+        if f.suffix.lower() not in (".jsonl", ".json", ".db", ".sqlite"):
+            continue
+        if cutoff and datetime.fromtimestamp(f.stat().st_mtime) < cutoff:
+            continue
+        session = parse_session(f)
+        if session and session.turn_count > 0:
+            sessions.append(session)
+    return sessions
+
+
+def _detect_tool(path: Path) -> str:
+    path_str = str(path).lower()
+    if "claude" in path_str:
+        return "claude"
+    if "cursor" in path_str:
+        return "cursor"
+    if "codex" in path_str:
+        return "codex"
+    if "gemini" in path_str:
+        return "gemini"
+    return "unknown"
+
+
+def _parse_jsonl(file_path: Path, tool: str) -> Optional[Session]:
+    """Parse Claude Code / Codex JSONL format."""
+    messages = []
+    created_at = None
+
+    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            role = obj.get("role") or obj.get("type", "")
+            content = _extract_content(obj)
+            ts = _extract_timestamp(obj)
+
+            if role in ("user", "human"):
+                messages.append(Message("user", content, ts))
+                if created_at is None:
+                    created_at = ts
+            elif role in ("assistant", "ai"):
+                messages.append(Message("assistant", content, ts))
+
+    if not messages:
+        return None
+
+    return Session(
+        id=file_path.stem,
+        tool=tool,
+        file_path=file_path,
+        messages=messages,
+        created_at=created_at,
+    )
+
+
+def _parse_json(file_path: Path, tool: str) -> Optional[Session]:
+    """Parse Gemini CLI JSON format."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    messages = []
+
+    # Handle array of messages
+    items = data if isinstance(data, list) else data.get("messages", data.get("history", []))
+    for item in items:
+        role = item.get("role", "")
+        content = _extract_content(item)
+        ts = _extract_timestamp(item)
+
+        if role in ("user", "human"):
+            messages.append(Message("user", content, ts))
+        elif role in ("assistant", "model", "ai"):
+            messages.append(Message("assistant", content, ts))
+
+    if not messages:
+        return None
+
+    return Session(
+        id=file_path.stem,
+        tool=tool,
+        file_path=file_path,
+        messages=messages,
+    )
+
+
+def _parse_sqlite(file_path: Path, tool: str) -> Optional[Session]:
+    """Parse Cursor SQLite workspace storage."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(file_path))
+        cursor = conn.cursor()
+
+        # Cursor stores chat in key-value blob — try common table/key names
+        tables = [r[0] for r in cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+
+        messages = []
+        for table in tables:
+            try:
+                rows = cursor.execute(f'SELECT key, value FROM "{table}"').fetchall()
+                for key, value in rows:
+                    if "chat" in str(key).lower() or "conversation" in str(key).lower():
+                        parsed = _try_parse_blob(value)
+                        if parsed:
+                            messages.extend(parsed)
+            except Exception:
+                continue
+
+        conn.close()
+
+        if not messages:
+            return None
+
+        return Session(
+            id=file_path.stem,
+            tool=tool,
+            file_path=file_path,
+            messages=messages,
+        )
+    except Exception:
+        return None
+
+
+def _try_parse_blob(value) -> list[Message]:
+    """Try to extract messages from a SQLite blob value."""
+    if isinstance(value, bytes):
+        try:
+            value = value.decode("utf-8")
+        except Exception:
+            return []
+    try:
+        data = json.loads(value)
+        messages = []
+        items = data if isinstance(data, list) else data.get("messages", [])
+        for item in items:
+            role = item.get("role", "")
+            content = _extract_content(item)
+            if role in ("user", "human") and content:
+                messages.append(Message("user", content))
+            elif role in ("assistant", "ai") and content:
+                messages.append(Message("assistant", content))
+        return messages
+    except Exception:
+        return []
+
+
+def _extract_content(obj: dict) -> str:
+    """Extract text content from various message formats."""
+    content = obj.get("content", obj.get("text", obj.get("message", "")))
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                parts.append(part.get("text", part.get("content", "")))
+        return " ".join(p for p in parts if p).strip()
+    return ""
+
+
+def _extract_timestamp(obj: dict) -> Optional[datetime]:
+    """Try to extract a timestamp from a message object."""
+    for key in ("timestamp", "created_at", "time", "ts"):
+        val = obj.get(key)
+        if val:
+            try:
+                if isinstance(val, (int, float)):
+                    return datetime.fromtimestamp(val / 1000 if val > 1e10 else val)
+                return datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            except Exception:
+                continue
+    return None
+
+
+def _parse_window(window: str) -> int:
+    """Parse '30d', '7d', '90d' into integer days."""
+    window = window.strip().lower()
+    if window.endswith("d"):
+        return int(window[:-1])
+    if window.endswith("w"):
+        return int(window[:-1]) * 7
+    if window.endswith("m"):
+        return int(window[:-1]) * 30
+    return 30
