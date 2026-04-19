@@ -29,17 +29,28 @@ class StructuralSignals:
 
 
 # High-confidence keyword sets (phrasing-agnostic signals are handled by Tier 2)
+# Each pattern covers English + common CJK equivalents.
+
 _URGENCY = re.compile(
-    r'\b(asap|urgent|urgently|quickly|hurry|right now|immediately|deadline)\b', re.I
+    r'(\b(asap|urgent|urgently|quickly|hurry|right now|immediately|deadline)\b'
+    r'|马上|立刻|赶紧|紧急|尽快|快点|截止|deadline)',
+    re.I
 )
 _DELEGATION = re.compile(
-    r'\bjust\s+(do|fix|write|make|create|add|implement|change|update|delete|remove|build)\b', re.I
+    r'(\bjust\s+(do|fix|write|make|create|add|implement|change|update|delete|remove|build)\b'
+    r'|帮我(写|做|修|创建|实现|添加|删除|改|生成|完成|处理)'
+    r'|直接(写|做|修|帮我|实现|生成))',
+    re.I
 )
 _GRATITUDE = re.compile(
-    r'\b(thanks|thank you|perfect|great|awesome|looks good|that works|nice)\b', re.I
+    r'(\b(thanks|thank you|perfect|great|awesome|looks good|that works|nice)\b'
+    r'|谢谢|好的|完美|太好了|可以|没问题)',
+    re.I
 )
 _PRIOR_ATTEMPT = re.compile(
-    r'\b(i tried|i tested|i checked|i already|i attempted|i ran|i moved|i added|i changed)\b', re.I
+    r'(\b(i tried|i tested|i checked|i already|i attempted|i ran|i moved|i added|i changed)\b'
+    r'|我试过|我尝试|我检查|我已经|我测试|我发现|我发现了)',
+    re.I
 )
 
 
@@ -68,7 +79,7 @@ def extract_structural(session: Session) -> StructuralSignals:
     for msg in user_msgs:
         text = msg.content
 
-        if "?" in text:
+        if "?" in text or "？" in text:
             question_count += 1
 
         if _URGENCY.search(text):
