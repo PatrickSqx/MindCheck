@@ -120,6 +120,9 @@ def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[S
         # Skip Claude Code subagent sessions — they are AI-to-AI, not human conversations
         if f.stem.startswith("agent-"):
             continue
+        # Skip Cursor subagent sessions — stored in agent-transcripts/{id}/subagents/
+        if "subagents" in f.parts:
+            continue
         session = parse_session(f)
         if session and session.turn_count > 0:
             sessions.append(session)
@@ -328,8 +331,21 @@ def _extract_content(obj: dict) -> str:
             if isinstance(part, str):
                 parts.append(part)
             elif isinstance(part, dict):
-                # "text" block, or fall back to "content"
-                parts.append(part.get("text", part.get("content", "")))
+                # Skip tool_result blocks — they are AI-internal, not human text
+                if part.get("type") == "tool_result":
+                    continue
+                val = part.get("text", part.get("content", ""))
+                # val might itself be a list (nested content blocks) — flatten one level
+                if isinstance(val, str):
+                    parts.append(val)
+                elif isinstance(val, list):
+                    for subpart in val:
+                        if isinstance(subpart, str):
+                            parts.append(subpart)
+                        elif isinstance(subpart, dict):
+                            t = subpart.get("text", "")
+                            if isinstance(t, str):
+                                parts.append(t)
         return " ".join(p for p in parts if p).strip()
     return ""
 
