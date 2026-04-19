@@ -17,6 +17,20 @@ class SessionScore:
     llm: LLMSignals = field(default_factory=LLMSignals)
     composite: float = 0.0
 
+    @property
+    def tier1_score(self) -> float:
+        """Structural-only score (0–100), always available regardless of tier."""
+        s = self.structural
+        raw = (
+            min(s.question_ratio * 100, 100) * 0.40 +
+            min(s.turn_count / 10 * 100, 100) * 0.30 +
+            min(s.message_ratio * 200, 100)   * 0.20 +
+            min(s.prior_attempt_count / max(s.turn_count, 1) * 100, 100) * 0.10
+        )
+        delegation_ratio = s.delegation_count / max(s.turn_count, 1)
+        penalty = min(delegation_ratio * 30, 20)
+        return max(0.0, min(100.0, raw - penalty))
+
     def compute_composite(self, max_tier: int = 2):
         """
         Composite score (0–100) weighted across signal categories.

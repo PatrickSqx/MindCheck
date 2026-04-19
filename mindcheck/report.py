@@ -33,15 +33,15 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         "",
         "## Session breakdown",
         "",
-        "| Session | Tool | Score | Hypothesis | Agency | Critical |",
-        "|---|---|---|---|---|---|",
+        "| Session | Tool | T1 | T2 | Hypothesis | Agency | Critical |",
+        "|---|---|---|---|---|---|---|",
     ]
 
     for r in sorted(results, key=lambda x: x.composite, reverse=True):
         s = r.session
         sem = r.semantic
         lines.append(
-            f"| {s.id[:40]} | {s.tool} | {r.composite:.0f} "
+            f"| {s.id[:40]} | {s.tool} | {r.tier1_score:.0f} | {r.composite:.0f} "
             f"| {sem.hypothesis_level_avg:.1f}/4 "
             f"| {sem.agency_score*100:.0f}% "
             f"| {sem.critical_engagement*100:.0f}% |"
@@ -85,7 +85,8 @@ def print_session_score(result: SessionScore):
     table.add_column("Value", style="white")
     table.add_column("Notes", style="dim")
 
-    table.add_row("Composite score",     f"{result.composite:.0f}/100", "")
+    table.add_row("Composite score (T2)", f"{result.composite:.0f}/100", "semantic signals")
+    table.add_row("Structural score (T1)", f"{result.tier1_score:.0f}/100", "structure only")
     table.add_row("Hypothesis level",    f"{sem.hypothesis_level_avg:.1f}/4",
                   "0=no attempt, 4=tested hypothesis")
     table.add_row("Agency score",        f"{sem.agency_score*100:.0f}%",
