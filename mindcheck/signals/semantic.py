@@ -126,7 +126,10 @@ def _get_model():
     if _model is None:
         try:
             from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer("all-MiniLM-L6-v2")
+            # paraphrase-multilingual-MiniLM-L12-v2: 50+ languages, ~118MB
+            # Maps cross-lingual meaning to same embedding space —
+            # English prototypes correctly classify Chinese/French/etc. input.
+            _model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         except ImportError:
             raise ImportError(
                 "sentence-transformers not installed. "
