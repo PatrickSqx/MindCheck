@@ -166,6 +166,15 @@ def _parse_jsonl(file_path: Path, tool: str) -> Optional[Session]:
             except json.JSONDecodeError:
                 continue
 
+            # ── Codex session_meta — detect agent sessions early ──────────
+            if obj.get("type") == "session_meta" and "payload" in obj:
+                source = obj["payload"].get("source", "")
+                # Sub-agent sessions have source as a dict: {"subagent": {...}}
+                # Main human sessions have source as a string: "vscode"
+                if isinstance(source, dict) and "subagent" in source:
+                    return None  # AI-to-AI agent session — skip entirely
+                continue
+
             # ── Format B: Codex CLI (nested payload) ──────────────────────
             if obj.get("type") == "response_item" and "payload" in obj:
                 payload = obj["payload"]
