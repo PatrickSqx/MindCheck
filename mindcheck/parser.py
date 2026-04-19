@@ -117,6 +117,9 @@ def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[S
             continue
         if cutoff and datetime.fromtimestamp(f.stat().st_mtime) < cutoff:
             continue
+        # Skip Claude Code subagent sessions — they are AI-to-AI, not human conversations
+        if f.stem.startswith("agent-"):
+            continue
         session = parse_session(f)
         if session and session.turn_count > 0:
             sessions.append(session)
@@ -137,7 +140,16 @@ def _detect_tool(path: Path) -> str:
 
 
 def _parse_jsonl(file_path: Path, tool: str) -> Optional[Session]:
-    """Parse Claude Code / Codex JSONL format."""
+    """Parse JSONL session files — handles two formats:
+
+    Format A (Claude Code):
+        {"role": "user", "content": "..."}
+
+    Format B (Codex CLI):
+        {"timestamp": "...", "type": "response_item",
+         "payload": {"type": "message", "role": "user",
+                     "content": [{"type": "input_text", "text": "..."}]}}
+    """
     messages = []
     created_at = None
 
@@ -151,6 +163,30 @@ def _parse_jsonl(file_path: Path, tool: str) -> Optional[Session]:
             except json.JSONDecodeError:
                 continue
 
+            # ── Format B: Codex CLI (nested payload) ──────────────────────
+            if obj.get("type") == "response_item" and "payload" in obj:
+                payload = obj["payload"]
+                role = payload.get("role", "")
+                # skip developer/system messages — not the human user
+                if role not in ("user", "assistant"):
+                    continue
+                content = _extract_content(payload)
+                ts = _extract_timestamp(obj)
+                if not content:
+                    continue
+                if role == "user":
+                    messages.append(Message("user", content, ts))
+                    if created_at is None:
+                        created_at = ts
+                else:
+                    messages.append(Message("assistant", content, ts))
+                continue
+
+            # skip Codex meta lines (session_meta, etc.)
+            if "type" in obj and "payload" in obj:
+                continue
+
+            # ── Format A: Claude Code (flat role/content) ──────────────────
             role = obj.get("role") or obj.get("type", "")
             content = _extract_content(obj)
             ts = _extract_timestamp(obj)
