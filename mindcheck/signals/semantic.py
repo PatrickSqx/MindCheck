@@ -99,6 +99,21 @@ PROTOTYPES: dict[str, list[str]] = {
     "not_metacognitive": [
         "Just give me the answer. I don't need the explanation. Skip the details.",
     ],
+
+    # Delegation — outsourcing thinking/execution rather than engaging
+    "delegation": [
+        "Just do it. Fix it for me. Write the whole thing. Go ahead and implement it.",
+        "Can you just handle this? Do whatever you think is best. You decide.",
+        "Build this feature. Write this function. Generate the code. Create the file.",
+        "I need you to write this for me. Can you take care of this? Please implement.",
+        "Just complete it. Finish the rest. Do the remaining parts.",
+    ],
+    "not_delegation": [
+        "I tried this approach and want to understand why it fails.",
+        "Here's my attempt — what did I get wrong?",
+        "Can you explain how this works so I can fix it myself?",
+        "I want to understand the tradeoffs before we decide.",
+    ],
 }
 
 _model = None
@@ -164,7 +179,7 @@ def _classify_message(text: str) -> dict:
         "is_critical": sim("critical") > sim("passive") + 0.05,  # small threshold
         "is_self_reliant": sim("self_reliant") > sim("not_self_reliant") + 0.05,
         "is_metacognitive": sim("metacognitive") > sim("not_metacognitive") + 0.1,
-        "is_delegation": sim("hypothesis_0") > 0.55,
+        "is_delegation": sim("delegation") > sim("not_delegation") + 0.02,
     }
 
 
