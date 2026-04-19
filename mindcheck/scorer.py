@@ -84,7 +84,18 @@ class SessionScore:
 
 
 def score_session(session: Session, max_tier: int = 2) -> SessionScore:
-    """Score a single session up to the specified analysis tier."""
+    """Score a single session up to the specified analysis tier.
+
+    Results are cached in ~/.mindcheck/cache.db keyed by (file_path, tier).
+    A cached result is returned immediately if the file hasn't changed.
+    """
+    from mindcheck.cache import get_cached, save_cached
+
+    mtime = session.file_path.stat().st_mtime
+    cached = get_cached(session.file_path, mtime, max_tier)
+    if cached is not None:
+        return cached
+
     result = SessionScore(session=session)
 
     # Tier 1: always run
@@ -99,6 +110,7 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
         result.llm = extract_llm(session)
 
     result.compute_composite(max_tier=max_tier)
+    save_cached(session.file_path, mtime, max_tier, result)
     return result
 
 

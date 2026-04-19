@@ -94,3 +94,26 @@ def scan():
             exists = p.exists()
             status = "[green]found[/green]" if exists else "[dim]not found[/dim]"
             console.print(f"  {tool:<15} {status}  {p}")
+
+
+@main.command()
+@click.option("--clear", is_flag=True, help="Delete all cached scores")
+def cache(clear: bool):
+    """Show cache stats or clear the cache."""
+    from mindcheck.cache import cache_stats, clear_cache, get_cache_path
+
+    if clear:
+        n = clear_cache()
+        console.print(f"[green]Cleared {n} cached session(s).[/green]")
+        return
+
+    stats = cache_stats()
+    path = get_cache_path()
+    size_kb = stats["size_bytes"] / 1024
+
+    console.print(Panel("[bold]MindCheck cache[/bold]"))
+    console.print(f"  Location : {path}")
+    console.print(f"  Size     : {size_kb:.1f} KB")
+    console.print(f"  Sessions : {stats['total']} cached")
+    for tier, count in sorted(stats["by_tier"].items()):
+        console.print(f"    Tier {tier} : {count} session(s)")
