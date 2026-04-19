@@ -53,10 +53,10 @@ def get_known_directories() -> dict[str, list[Path]]:
         "Claude Code": [
             home / ".claude" / "projects",
         ],
+        # Cursor stores agent transcripts locally as JSONL under ~/.cursor/projects/
+        # (distinct from AppData/Roaming/Cursor which is VS Code UI state only)
         "Cursor": [
-            appdata / "Cursor" / "User" / "workspaceStorage",
-            home / "Library" / "Application Support" / "Cursor" / "User" / "workspaceStorage",
-            home / ".config" / "Cursor" / "User" / "workspaceStorage",
+            home / ".cursor" / "projects",
         ],
         "Codex": [
             home / ".codex",
@@ -306,8 +306,20 @@ def _try_parse_blob(value) -> list[Message]:
 
 
 def _extract_content(obj: dict) -> str:
-    """Extract text content from various message formats."""
-    content = obj.get("content", obj.get("text", obj.get("message", "")))
+    """Extract text content from various message formats.
+
+    Handles:
+      - Flat:   {"role": "user", "content": "..."}           (Claude Code)
+      - Nested: {"role": "user", "message": {"content": "..."}} (Cursor agent)
+      - Blocks: {"content": [{"type": "text", "text": "..."}]}
+    """
+    # Cursor agent format: content lives inside a "message" wrapper
+    msg = obj.get("message")
+    if isinstance(msg, dict):
+        content = msg.get("content", "")
+    else:
+        content = obj.get("content", obj.get("text", ""))
+
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
@@ -316,6 +328,7 @@ def _extract_content(obj: dict) -> str:
             if isinstance(part, str):
                 parts.append(part)
             elif isinstance(part, dict):
+                # "text" block, or fall back to "content"
                 parts.append(part.get("text", part.get("content", "")))
         return " ".join(p for p in parts if p).strip()
     return ""
