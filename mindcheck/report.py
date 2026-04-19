@@ -96,8 +96,13 @@ def print_session_score(result: SessionScore):
                   "showed prior attempt before asking")
     table.add_row("Metacognition",       f"{sem.metacognition_score*100:.0f}%",
                   "reflected on your own approach")
-    table.add_row("Delegation penalty",  f"-{sem.delegation_penalty*20:.0f}pts",
-                  "heavy outsourcing detected")
+    _dp = sem.delegation_penalty * 20
+    _dp_note = (
+        "heavy outsourcing detected" if _dp >= 10 else
+        "some outsourcing detected"  if _dp >= 3  else
+        "minimal outsourcing"
+    )
+    table.add_row("Delegation penalty",  f"-{_dp:.1f}pts", _dp_note)
     table.add_row("Question ratio",      f"{st.question_ratio*100:.0f}%",
                   "of your messages contained a question")
     table.add_row("Turn count",          str(st.turn_count), "exchanges in session")
