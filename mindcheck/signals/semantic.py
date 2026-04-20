@@ -244,24 +244,16 @@ def _get_model():
             from sentence_transformers import SentenceTransformer
 
             # Suppress noisy HF/transformers warnings that confuse first-time users
+            import os
+            os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
             logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
             logging.getLogger("transformers").setLevel(logging.ERROR)
+            logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
             warnings.filterwarnings("ignore", category=FutureWarning)
+            warnings.filterwarnings("ignore", module="huggingface_hub.*")
 
             _MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
-
-            # Show a loading message only if the model isn't cached locally yet
-            from pathlib import Path
-            import os
-            cache_dir = Path(os.environ.get("SENTENCE_TRANSFORMERS_HOME",
-                             Path.home() / ".cache" / "torch" / "sentence_transformers"))
-            model_cached = any(cache_dir.glob(f"*{_MODEL_NAME}*")) if cache_dir.exists() else False
-
-            if not model_cached:
-                from rich.console import Console
-                Console().print(
-                    "[dim]Downloading embedding model (~118 MB, first run only)…[/dim]"
-                )
 
             # paraphrase-multilingual-MiniLM-L12-v2: 50+ languages, ~118MB
             # Maps cross-lingual meaning to same embedding space —
