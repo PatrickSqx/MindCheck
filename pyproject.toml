@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mindcheck"
-version = "0.1.0"
+version = "1.0.0"
 description = "Analyse your AI conversation logs to measure cognitive engagement over time"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -17,6 +17,7 @@ dependencies = [
     "rich>=13.0",                          # pretty terminal output
     "anthropic>=0.25",                     # Tier 3: LLM fallback (optional)
     "openai>=1.0",                         # Tier 3: LLM fallback (optional)
+    "google-genai>=1.0",                   # Tier 3: Gemini fallback (optional)
 ]
 
 [project.optional-dependencies]

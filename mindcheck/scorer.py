@@ -80,9 +80,8 @@ class SessionScore:
         self_reliance    = sem.self_reliance * 100
         metacognition    = sem.metacognition_score * 100
 
-        # LLM refinement (Tier 3, adjusts when available)
-        llm_adjustment = llm.confidence_adjustment if llm.ran else 0.0
-
+        # LLM refinement (Tier 3) is already baked into semantic.hypothesis_level_avg
+        # by score_session() before this method is called — no separate adjustment needed.
         composite = (
             structural_score * 0.05 +
             hypothesis_score * 0.25 +
@@ -93,7 +92,7 @@ class SessionScore:
             (sem.delegation_penalty * -20)
         )
 
-        self.composite = max(0.0, min(100.0, composite + llm_adjustment))
+        self.composite = max(0.0, min(100.0, composite))
         return self.composite
 
 
@@ -120,8 +119,15 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
         result.semantic = extract_semantic(session)
 
     # Tier 3: LLM classification (optional, cheap)
+    # Only runs if a provider is configured via `mindcheck config`
     if max_tier >= 3:
-        result.llm = extract_llm(session)
+        from mindcheck.config import load_config, is_tier3_configured
+        cfg = load_config()
+        if is_tier3_configured(cfg):
+            result.llm = extract_llm(session, result.semantic, cfg)
+            # Apply corrected hypothesis avg if Tier 3 ran
+            if result.llm.ran and result.llm.messages_reclassified > 0:
+                result.semantic.hypothesis_level_avg = result.llm.hypothesis_level_avg
 
     result.compute_composite(max_tier=max_tier)
     save_cached(session.file_path, mtime, max_tier, result)
@@ -129,8 +135,26 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
 
 
 def score_sessions(sessions: list[Session], max_tier: int = 2) -> list[SessionScore]:
-    """Score a list of sessions."""
+    """Score a list of sessions, showing a progress bar."""
+    from rich.progress import Progress, SpinnerColumn, BarColumn, TaskProgressColumn, TextColumn
+    from rich.console import Console
+
     results = []
-    for session in sessions:
-        results.append(score_session(session, max_tier))
+    console = Console()
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("[dim]{task.fields[tool]}[/dim]"),
+        console=console,
+        transient=True,   # clears itself when done
+    ) as progress:
+        task = progress.add_task("Scoring sessions…", total=len(sessions), tool="")
+        for session in sessions:
+            progress.update(task, tool=f"{session.tool} · {session.id[:30]}")
+            results.append(score_session(session, max_tier))
+            progress.advance(task)
+
     return results

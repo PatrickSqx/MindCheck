@@ -11,6 +11,15 @@ from mindcheck.scorer import SessionScore
 
 console = Console()
 
+_TASK_LABELS = {
+    "code":     "Code / debugging",
+    "data":     "Data / analysis",
+    "writing":  "Writing / editing",
+    "research": "Research / concepts",
+    "planning": "Planning / design",
+    "config":   "Config / setup",
+}
+
 
 def generate_report(results: list[SessionScore], period: str = "") -> str:
     """Generate a markdown report from scored sessions."""
@@ -47,6 +56,29 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
             f"| {sem.critical_engagement*100:.0f}% |"
         )
 
+    # ── Task pattern aggregation across all sessions ──────────────────────────
+    agg: dict[str, dict] = {}
+    for r in results:
+        for domain, stats in r.semantic.task_breakdown.items():
+            if domain not in agg:
+                agg[domain] = {"count": 0, "hyp_sum": 0.0, "deleg_sum": 0.0}
+            agg[domain]["count"]    += stats["count"]
+            agg[domain]["hyp_sum"]  += stats["hypothesis_avg"] * stats["count"]
+            agg[domain]["deleg_sum"] += stats["delegation_rate"] * stats["count"]
+
+    if agg:
+        lines += ["", "---", "", "## Task patterns", "",
+                  "| Task type | Messages | Avg hypothesis | Delegation |  |",
+                  "|---|---|---|---|---|"]
+        for domain, d in sorted(agg.items(), key=lambda x: x[1]["count"], reverse=True):
+            label = _TASK_LABELS.get(domain, domain)
+            hyp   = d["hyp_sum"]  / d["count"]
+            deleg = d["deleg_sum"] / d["count"]
+            flag  = "⚠ watch this" if deleg >= 0.5 or hyp < 1.5 else ""
+            lines.append(
+                f"| {label} | {d['count']} | {hyp:.1f}/4 | {deleg*100:.0f}% | {flag} |"
+            )
+
     lines += [
         "",
         "---",
@@ -71,7 +103,8 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
 
 def print_report(report_text: str):
     """Print a markdown report to the terminal with rich formatting."""
-    console.print(Panel(report_text, title="[bold]MindCheck Report[/bold]", box=box.ROUNDED))
+    from rich.markdown import Markdown
+    console.print(Markdown(report_text))
 
 
 def print_session_score(result: SessionScore):
@@ -87,6 +120,20 @@ def print_session_score(result: SessionScore):
 
     table.add_row("Composite score (T2)", f"{result.composite:.0f}/100", "semantic signals")
     table.add_row("Structural score (T1)", f"{result.tier1_score:.0f}/100", "structure only")
+
+    # Show Tier 3 status if it ran
+    llm = result.llm
+    if llm.ran:
+        t3_note = (
+            f"reclassified {llm.messages_reclassified} message(s) → "
+            f"hypothesis now {llm.hypothesis_level_avg:.2f}/4"
+            if llm.messages_reclassified > 0
+            else "ran — all messages already confident"
+        )
+        table.add_row("Tier 3 (LLM)", "[green]active[/green]", t3_note)
+    elif result.session.tool:  # only show if a session was actually scored
+        table.add_row("Tier 3 (LLM)", "[dim]not triggered[/dim]",
+                      "all messages were high-confidence")
     table.add_row("Hypothesis level",    f"{sem.hypothesis_level_avg:.1f}/4",
                   "0=no attempt, 4=tested hypothesis")
     table.add_row("Agency score",        f"{sem.agency_score*100:.0f}%",
@@ -111,3 +158,47 @@ def print_session_score(result: SessionScore):
                   "your words / AI words (higher = more engaged)")
 
     console.print(table)
+
+    # Task domain breakdown
+    breakdown = sem.task_breakdown
+    if breakdown:
+        task_table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+        task_table.add_column("Task type",      style="cyan",  min_width=20)
+        task_table.add_column("Messages",       style="white", justify="right")
+        task_table.add_column("Avg hypothesis", style="white", justify="right")
+        task_table.add_column("Delegation",     style="white", justify="right")
+        task_table.add_column("",               style="dim")
+
+        for domain, stats in sorted(breakdown.items(),
+                                    key=lambda x: x[1]["count"], reverse=True):
+            label    = _TASK_LABELS.get(domain, domain)
+            hyp      = stats["hypothesis_avg"]
+            deleg    = stats["delegation_rate"]
+            count    = stats["count"]
+            flag = "[yellow]⚠ watch this[/yellow]" if deleg >= 0.5 or hyp < 1.5 else ""
+            task_table.add_row(
+                label, str(count),
+                f"{hyp:.1f}/4",
+                f"{deleg*100:.0f}%",
+                flag,
+            )
+
+        console.print("  [bold]Task breakdown[/bold]")
+        console.print(task_table)
+
+    # Score interpretation band
+    score = result.composite
+    if score >= 70:
+        band = "[green]Strong engagement[/green] — you're driving, hypothesising, and thinking critically."
+    elif score >= 50:
+        band = "[yellow]Moderate engagement[/yellow] — solid in places, but room to push deeper before asking."
+    elif score >= 30:
+        band = "[yellow]Passive engagement[/yellow] — leaning on AI for direction more than thinking it through first."
+    else:
+        band = "[red]Heavy delegation[/red] — most asks hand off the thinking entirely. Try forming a hypothesis first."
+
+    console.print(f"\n  {band}")
+    console.print(
+        "  [dim]Hypothesis guide: 0 = dump the problem · 1 = describe symptom · "
+        "2 = locate cause · 3 = form hypothesis · 4 = tested a hypothesis[/dim]\n"
+    )

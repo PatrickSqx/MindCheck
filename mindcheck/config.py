@@ -20,24 +20,34 @@ _DEFAULTS = {
     "tier3_ollama_model": "llama3.2",
 }
 
-# Default models per provider (cheapest/fastest option first)
+# Default models per provider (cheapest/fastest suitable for classification)
 _DEFAULT_MODELS = {
     "anthropic": "claude-haiku-4-5",
-    "openai":    "gpt-4o-mini",
+    "openai":    "gpt-4.1-nano",
+    "gemini":    "gemini-2.5-flash",
     "ollama":    "llama3.2",
 }
 
 # All known models per provider, for display purposes
+# Updated April 2026
 AVAILABLE_MODELS = {
     "anthropic": [
-        ("claude-haiku-4-5",   "cheapest, fastest  [default]"),
+        ("claude-haiku-4-5",   "cheapest, fastest          [default]"),
         ("claude-sonnet-4-5",  "balanced"),
         ("claude-opus-4-5",    "most accurate, expensive"),
     ],
     "openai": [
-        ("gpt-4o-mini",        "cheapest, fastest  [default]"),
-        ("gpt-4o",             "balanced"),
-        ("o1-mini",            "reasoning model"),
+        ("gpt-4.1-nano",       "ultra-cheap $0.10/M        [default]"),
+        ("gpt-5-mini",         "cheap, fast  $0.25/M"),
+        ("gpt-4.1",            "balanced     $2/M"),
+        ("gpt-5",              "most capable $1.25/M"),
+        ("o3",                 "reasoning    $2/M"),
+    ],
+    "gemini": [
+        ("gemini-2.5-flash",      "fast, free tier available  [default]"),
+        ("gemini-2.5-flash-lite", "cheapest, free tier"),
+        ("gemini-2.5-pro",        "balanced    $1.25/M"),
+        ("gemini-3-flash",        "newer fast option"),
     ],
     "ollama": [
         ("llama3.2",           "good balance  [default]"),
@@ -72,6 +82,7 @@ def set_key(key: str) -> dict:
     Set API key and auto-detect provider from key prefix.
       sk-ant-*  → Anthropic
       sk-*      → OpenAI
+      AIza*     → Gemini
       anything else → ask user to specify provider
     """
     cfg = load_config()
@@ -81,6 +92,8 @@ def set_key(key: str) -> dict:
         cfg["tier3_provider"] = "anthropic"
     elif key.startswith("sk-"):
         cfg["tier3_provider"] = "openai"
+    elif key.startswith("AIza"):
+        cfg["tier3_provider"] = "gemini"
     # else: provider must be set separately
 
     save_config(cfg)
@@ -90,7 +103,7 @@ def set_key(key: str) -> dict:
 def set_provider(provider: str, url: Optional[str] = None,
                  model: Optional[str] = None) -> dict:
     """Set provider explicitly (useful for Ollama which needs no API key)."""
-    valid = ("anthropic", "openai", "ollama")
+    valid = ("anthropic", "openai", "gemini", "ollama")
     if provider not in valid:
         raise ValueError(f"Provider must be one of: {valid}")
 

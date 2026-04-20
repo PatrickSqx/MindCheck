@@ -21,7 +21,7 @@ from mindcheck.signals.semantic import SemanticSignals
 from mindcheck.signals.llm import LLMSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 1
+CACHE_VERSION = 3  # bumped: task-domain breakdown (v3)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -158,6 +158,7 @@ def _serialize(score) -> str:
             "self_reliance":        sem.self_reliance,
             "metacognition_score":  sem.metacognition_score,
             "delegation_penalty":   sem.delegation_penalty,
+            "task_breakdown":       sem.task_breakdown,
         },
         "composite": score.composite,
     })
@@ -220,6 +221,7 @@ def _deserialize(data_json: str):
         self_reliance        = sem_d["self_reliance"],
         metacognition_score  = sem_d["metacognition_score"],
         delegation_penalty   = sem_d["delegation_penalty"],
+        task_breakdown       = sem_d.get("task_breakdown", {}),
     )
 
     result = SessionScore(session=session)

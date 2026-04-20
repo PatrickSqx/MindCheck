@@ -124,8 +124,14 @@ def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[S
         if "subagents" in f.parts:
             continue
         session = parse_session(f)
+        # Require at least 3 user messages with meaningful content (≥12 chars each)
+        # to avoid polluting reports with button-click / one-word sessions.
         if session and session.turn_count > 0:
-            sessions.append(session)
+            meaningful = sum(
+                1 for m in session.user_messages if len(m.content.strip()) >= 12
+            )
+            if meaningful >= 3:
+                sessions.append(session)
     return sessions
 
 
