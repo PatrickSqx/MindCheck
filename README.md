@@ -2,7 +2,7 @@
 
 > Are you using AI as a tool — or becoming dependent on it?
 
-MindCheck analyses your AI conversation logs (Claude Code, Cursor, Codex, Gemini CLI) and measures your **cognitive engagement** over time. Not how much you use AI, but *how* you use it.
+MindCheck analyses your AI conversation logs and measures your **cognitive engagement** — not how much you use AI, but *how* you use it.
 
 ---
 
@@ -18,27 +18,35 @@ MindCheck gives you a mirror.
 
 | Signal | What it detects |
 |---|---|
-| **Question framing** | Do you form a hypothesis before asking, or just dump the problem? |
+| **Hypothesis level** | Do you form a hypothesis before asking, or just dump the problem? (0–4 scale) |
 | **Agency** | Are you driving the conversation, or just reacting to AI output? |
-| **Learning trajectory** | Are your questions getting deeper or simpler over time? |
 | **Critical engagement** | Do you push back on AI answers, or accept everything? |
 | **Self-reliance** | Do you attempt problems before asking for help? |
-| **Topic retention** | Do you keep asking the same questions, or do they stick? |
 | **Metacognition** | Do you reflect on your own approach and blind spots? |
+| **Delegation** | How often are you handing off thinking entirely? |
+
+### Score bands
+
+| Score | Meaning |
+|---|---|
+| 70–100 | Strong engagement — driving, hypothesising, thinking critically |
+| 50–69 | Moderate — solid in places, room to push deeper before asking |
+| 30–49 | Passive — leaning on AI for direction more than thinking first |
+| 0–29 | Heavy delegation — most asks hand off the thinking entirely |
 
 ---
 
 ## How it works
 
-Three-tier signal extraction — designed to be cheap and accurate:
+Three-tier signal extraction — designed to be cheap and private:
 
 ```
-Tier 1: Structural rules    (free, offline)  — ratios, counts, timestamps
-Tier 2: Semantic embeddings (free, offline)  — meaning, not keywords
+Tier 1: Structural rules    (free, offline)  — ratios, counts, patterns
+Tier 2: Semantic embeddings (free, offline)  — meaning, not just keywords
 Tier 3: LLM classification  (~$0.01/month)  — ambiguous edge cases only
 ```
 
-Only your messages are analysed — AI responses are discarded. Results are cached locally so each new session costs fractions of a cent.
+Only your messages are analysed — AI responses are discarded. Results are cached locally so re-running is instant.
 
 ---
 
@@ -51,72 +59,89 @@ pip install mindcheck
 Or from source:
 
 ```bash
-git clone https://github.com/PatrickSqx/-MindCheck.git
-cd -MindCheck
-pip install -e ".[dev]"
+git clone https://github.com/PatrickSqx/MindCheck.git
+cd MindCheck
+pip install -e .
 ```
+
+> **First run:** Tier 2 downloads a ~118 MB multilingual embedding model automatically. This only happens once.
 
 ---
 
 ## Usage
 
 ```bash
-# Analyse all sessions in a folder
-mindcheck analyze ./sessions/
-
-# Generate a report for the last 30 days
-mindcheck report --last 30d
-
 # Score a single session file
 mindcheck score session.jsonl
 
-# Auto-discover sessions from known AI tool directories
+# Score with Tier 3 LLM refinement
+mindcheck score session.jsonl --tier 3
+
+# Analyse all sessions in a folder
+mindcheck analyze ./sessions/
+
+# Auto-discover and report on last 30 days
+mindcheck report --last 30d
+
+# Show all auto-discovered session directories on this machine
 mindcheck scan
+
+# Cache management
+mindcheck cache          # show cache stats
+mindcheck cache --clear  # clear all cached scores
 ```
 
 ---
 
-## Sample output
+## Tier 3 setup (optional)
 
-```
-MindCheck Report — April 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Tier 3 uses a cheap LLM to resolve messages that Tier 2 was uncertain about. It's optional — Tier 2 handles most sessions well on its own.
 
-Cognitive Engagement Score: 61/100  ↓ from 74 last month
+```bash
+# Anthropic (key auto-detected from sk-ant- prefix)
+mindcheck config --key sk-ant-xxxx
 
-WHAT CHANGED
-  Hypothesis quality dropped from 58% → 31% of questions
-  "Just do it" phrasing up 40% this month
+# OpenAI (key auto-detected from sk- prefix)
+mindcheck config --key sk-xxxx
 
-PATTERN SPOTTED
-  You've asked about async/await in 7 of the last 10 sessions.
-  This topic isn't sticking — consider a focused read.
+# Gemini (key auto-detected from AIza prefix)
+mindcheck config --key AIzaxxxx
 
-YOU'RE DOING WELL AT
-  Critical engagement: caught AI mistakes 6 times ↑
-  Strongest session Apr 14: you drove the full architecture discussion
+# Local Ollama (free, no key needed)
+mindcheck config --provider ollama
 
-NUDGE
-  Before your next question, write one sentence about what
-  you think is causing the problem. Even if you're wrong.
+# Choose a specific model
+mindcheck config --model gemini-2.5-flash-lite
+
+# Show current config and available models
+mindcheck config --show
 ```
 
 ---
 
 ## Supported formats
 
-| Tool | Format | Auto-discovered |
-|---|---|---|
-| Claude Code | `.jsonl` | ✅ |
-| Cursor | SQLite | ✅ |
-| Codex CLI | `.jsonl` | ✅ |
-| Gemini CLI | `.json` | ✅ |
+| Tool | Auto-discovered |
+|---|---|
+| Claude Code | ✅ `~/.claude/projects/` |
+| Cursor | ✅ `~/.cursor/projects/` |
+| Codex CLI | ✅ `~/.codex/sessions/` |
+| Gemini CLI | ✅ `~/.gemini/tmp/` |
+
+Agent/subagent sessions are automatically filtered — only human conversations are scored.
 
 ---
 
 ## Privacy
 
-Everything runs locally. No data leaves your machine unless you explicitly enable Tier 3 LLM classification with your own API key. Even then, only your short messages are sent — never AI responses, never full sessions.
+Everything runs locally. No data leaves your machine unless you explicitly enable Tier 3 with your own API key. Even then, only short individual messages are sent — never AI responses, never full sessions.
+
+---
+
+## Roadmap
+
+- **v1.0** — Tier 1/2/3 scoring, four parsers, SQLite cache, multilingual support
+- **v1.1** — ChatGPT export parser, cross-session learning trajectory, prototype self-improvement loop
 
 ---
 

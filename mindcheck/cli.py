@@ -77,6 +77,7 @@ def report(last: str, tier: int):
         console.print("Try: mindcheck analyze <path>")
         return
 
+    console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions across the last [cyan]{last}[/cyan]")
     results = score_sessions(sessions, max_tier=tier)
     report_text = generate_report(results)
     print_report(report_text)
@@ -99,7 +100,7 @@ def scan():
 @main.command("config")
 @click.option("--key",        default=None, help="API key (provider auto-detected from prefix)")
 @click.option("--provider",   default=None,
-              type=click.Choice(["anthropic", "openai", "ollama"]),
+              type=click.Choice(["anthropic", "openai", "gemini", "ollama"]),
               help="Set provider explicitly")
 @click.option("--model",      default=None, help="Model to use (see --show for options)")
 @click.option("--ollama-url", default=None, help="Ollama base URL (default: http://localhost:11434)")
@@ -112,7 +113,9 @@ def config_cmd(key, provider, model, ollama_url, show):
       mindcheck config --key sk-ant-API_KEY                   Anthropic (auto-detected)
       mindcheck config --key sk-ant-API_KEY --model claude-haiku-4-5
       mindcheck config --key sk-API_KEY                       OpenAI (auto-detected)
-      mindcheck config --key sk-API_KEY --model gpt-4o
+      mindcheck config --key sk-API_KEY --model gpt-4.1-nano
+      mindcheck config --key AIza...                          Gemini (auto-detected)
+      mindcheck config --key AIza... --model gemini-2.5-flash
       mindcheck config --provider ollama                      Local Ollama (free)
       mindcheck config --provider ollama --model mistral
       mindcheck config --show                                 Show config + model list
