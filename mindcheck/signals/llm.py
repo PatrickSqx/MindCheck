@@ -120,7 +120,41 @@ def extract_llm(
         sig.messages_reclassified = reclassified
         sig.hypothesis_level_avg = sum(updated_levels) / len(updated_levels)
 
+    # Persist high-confidence classifications for prototype self-improvement
+    if sig.prototype_candidates:
+        _save_prototype_candidates(sig.prototype_candidates)
+
     return sig
+
+
+def _save_prototype_candidates(candidates: list[dict]) -> None:
+    """Append new high-confidence LLM classifications to the learned prototypes file.
+
+    File: ~/.mindcheck/learned_prototypes.json
+    Format: list of {text, level, reasoning, provider, model}
+    Deduplicated by text so the same message is never added twice.
+    """
+    from pathlib import Path
+
+    path = Path.home() / ".mindcheck" / "learned_prototypes.json"
+
+    existing: list[dict] = []
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = []
+
+    existing_texts = {e.get("text", "") for e in existing}
+    new_entries = [c for c in candidates if c.get("text", "") not in existing_texts]
+
+    if new_entries:
+        existing.extend(new_entries)
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(
+            json.dumps(existing, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
 
 
 # ── Provider dispatch ─────────────────────────────────────────────────────────

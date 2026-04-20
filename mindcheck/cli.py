@@ -165,6 +165,19 @@ def config_cmd(key, provider, model, ollama_url, show):
         console.print(f"  Status   : "
                       f"{'[green]ready — run with --tier 3[/green]' if is_tier3_configured(cfg) else '[yellow]not configured[/yellow]'}")
 
+        # Show learned prototype count
+        from pathlib import Path as _Path
+        import json as _json
+        learned_path = _Path.home() / ".mindcheck" / "learned_prototypes.json"
+        learned_count = 0
+        if learned_path.exists():
+            try:
+                learned_count = len(_json.loads(learned_path.read_text(encoding="utf-8")))
+            except Exception:
+                pass
+        console.print(f"  Learned  : [cyan]{learned_count}[/cyan] prototype(s) accumulated"
+                      + (" [dim](grows as Tier 3 runs)[/dim]" if learned_count == 0 else ""))
+
         # Show available models for current or all providers
         providers_to_show = [current_provider] if current_provider else list(AVAILABLE_MODELS)
         console.print()

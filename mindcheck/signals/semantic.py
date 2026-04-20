@@ -276,13 +276,42 @@ def _get_model():
 
 
 def _get_prototype_embeddings() -> dict[str, np.ndarray]:
-    """Compute prototype embeddings once, cache them."""
+    """Compute prototype embeddings once, cache them.
+
+    Merges built-in PROTOTYPES with any user-learned prototypes saved by Tier 3
+    in ~/.mindcheck/learned_prototypes.json. Learned examples are appended to the
+    relevant hypothesis_N prototype so the embeddings improve over time.
+    """
     global _prototype_embeddings
     if not _prototype_embeddings:
         model = _get_model()
-        for key, texts in PROTOTYPES.items():
+
+        # Start from a copy of built-in prototypes
+        extended: dict[str, list[str]] = {k: list(v) for k, v in PROTOTYPES.items()}
+
+        # Merge learned prototypes saved by Tier 3
+        import json as _json
+        from pathlib import Path
+        learned_path = Path.home() / ".mindcheck" / "learned_prototypes.json"
+        if learned_path.exists():
+            try:
+                learned = _json.loads(learned_path.read_text(encoding="utf-8"))
+                added = 0
+                for entry in learned:
+                    level = entry.get("level")
+                    text  = entry.get("text", "").strip()
+                    if isinstance(level, int) and 0 <= level <= 4 and text:
+                        extended[f"hypothesis_{level}"].append(text)
+                        added += 1
+                if added:
+                    pass  # Loaded silently — no noise on every run
+            except Exception:
+                pass  # Corrupt file — fall back to built-ins only
+
+        for key, texts in extended.items():
             combined = " ".join(texts)
             _prototype_embeddings[key] = model.encode(combined, normalize_embeddings=True)
+
     return _prototype_embeddings
 
 
