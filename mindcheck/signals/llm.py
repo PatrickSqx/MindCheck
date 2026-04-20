@@ -101,7 +101,7 @@ def extract_llm(
                 reclassified += 1
 
                 # Save as prototype candidate if LLM is confident
-                if llm_confidence >= 0.85:
+                if llm_confidence >= 0.75:
                     sig.prototype_candidates.append({
                         "text":      text,
                         "level":     llm_level,
