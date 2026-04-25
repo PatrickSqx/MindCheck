@@ -49,8 +49,9 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
     for r in sorted(results, key=lambda x: x.composite, reverse=True):
         s = r.session
         sem = r.semantic
+        tag = " 📦" if s.archived else ""
         lines.append(
-            f"| {s.id[:40]} | {s.tool} | {r.tier1_score:.0f} | {r.composite:.0f} "
+            f"| {s.id[:40]}{tag} | {s.tool} | {r.tier1_score:.0f} | {r.composite:.0f} "
             f"| {sem.hypothesis_level_avg:.1f}/4 "
             f"| {sem.agency_score*100:.0f}% "
             f"| {sem.critical_engagement*100:.0f}% |"
@@ -113,7 +114,8 @@ def print_session_score(result: SessionScore):
     sem = result.semantic
     st = result.structural
 
-    table = Table(title=f"Session: {s.id}", box=box.SIMPLE)
+    archived_tag = " [dim][archived][/dim]" if s.archived else ""
+    table = Table(title=f"Session: {s.id}{archived_tag}", box=box.SIMPLE)
     table.add_column("Signal", style="cyan")
     table.add_column("Value", style="white")
     table.add_column("Notes", style="dim")

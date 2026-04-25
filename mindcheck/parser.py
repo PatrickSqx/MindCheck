@@ -25,6 +25,7 @@ class Session:
     file_path: Path
     messages: list[Message] = field(default_factory=list)
     created_at: Optional[datetime] = None
+    archived: bool = False
 
     @property
     def user_messages(self) -> list[Message]:
@@ -69,7 +70,7 @@ def get_known_directories() -> dict[str, list[Path]]:
     }
 
 
-def auto_discover_sessions(window: str = "30d") -> list[Session]:
+def auto_discover_sessions(window: str = "30d", skip_archived: bool = False) -> list[Session]:
     """Discover sessions from all known directories within the time window."""
     days = _parse_window(window)
     cutoff = datetime.now() - timedelta(days=days)
@@ -79,15 +80,16 @@ def auto_discover_sessions(window: str = "30d") -> list[Session]:
         for path in paths:
             if not path.exists():
                 continue
-            sessions.extend(_scan_directory(path, tool, cutoff))
+            sessions.extend(_scan_directory(path, tool, cutoff, skip_archived))
 
     return sessions
 
 
-def discover_sessions(path: Path, cutoff: Optional[datetime] = None) -> list[Session]:
+def discover_sessions(path: Path, cutoff: Optional[datetime] = None,
+                      skip_archived: bool = False) -> list[Session]:
     """Discover sessions from a specific directory."""
     tool = _detect_tool(path)
-    return _scan_directory(path, tool, cutoff)
+    return _scan_directory(path, tool, cutoff, skip_archived)
 
 
 def parse_session(file_path: Path) -> Optional[Session]:
@@ -110,7 +112,8 @@ def parse_session(file_path: Path) -> Optional[Session]:
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
-def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[Session]:
+def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime],
+                    skip_archived: bool = False) -> list[Session]:
     sessions = []
     for f in path.rglob("*"):
         if f.suffix.lower() not in (".jsonl", ".json", ".db", ".sqlite"):
@@ -123,6 +126,12 @@ def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[S
         # Skip Cursor subagent sessions — stored in agent-transcripts/{id}/subagents/
         if "subagents" in f.parts:
             continue
+
+        is_archived = any(p.startswith("archived") for p in f.relative_to(path).parts)
+
+        if skip_archived and is_archived:
+            continue
+
         session = parse_session(f)
         # Require at least 3 user messages with meaningful content (≥12 chars each)
         # to avoid polluting reports with button-click / one-word sessions.
@@ -131,6 +140,7 @@ def _scan_directory(path: Path, tool: str, cutoff: Optional[datetime]) -> list[S
                 1 for m in session.user_messages if len(m.content.strip()) >= 12
             )
             if meaningful >= 3:
+                session.archived = is_archived
                 sessions.append(session)
     return sessions
 

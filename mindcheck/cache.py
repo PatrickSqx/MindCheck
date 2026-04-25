@@ -134,6 +134,7 @@ def _serialize(score) -> str:
         "tool":             s.tool,
         "file_path":        str(s.file_path),
         "created_at":       s.created_at.isoformat() if s.created_at else None,
+        "archived":         s.archived,
         "turn_count":       s.turn_count,
         "total_user_chars": s.total_user_chars,
         "total_ai_chars":   s.total_ai_chars,
@@ -197,6 +198,7 @@ def _deserialize(data_json: str):
         file_path=Path(d["file_path"]),
         messages=messages,
         created_at=created_at,
+        archived=d.get("archived", False),
     )
 
     st_d = d["structural"]
