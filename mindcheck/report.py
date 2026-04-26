@@ -42,18 +42,18 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         "",
         "## Session breakdown",
         "",
-        "| Session | Tool | T1 | T2 | Hypothesis | Agency | Critical |",
+        "| Session | Tool | T1 | T2 | Hypothesis | Ownership | Critical |",
         "|---|---|---|---|---|---|---|",
     ]
 
     for r in sorted(results, key=lambda x: x.composite, reverse=True):
         s = r.session
         sem = r.semantic
-        tag = " 📦" if s.archived else ""
+        tag = " [archived]" if s.archived else ""
         lines.append(
             f"| {s.id[:40]}{tag} | {s.tool} | {r.tier1_score:.0f} | {r.composite:.0f} "
             f"| {sem.hypothesis_level_avg:.1f}/4 "
-            f"| {sem.agency_score*100:.0f}% "
+            f"| {sem.ownership_score*100:.0f}% "
             f"| {sem.critical_engagement*100:.0f}% |"
         )
 
@@ -75,7 +75,7 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
             label = _TASK_LABELS.get(domain, domain)
             hyp   = d["hyp_sum"]  / d["count"]
             deleg = d["deleg_sum"] / d["count"]
-            flag  = "⚠ watch this" if deleg >= 0.5 or hyp < 1.5 else ""
+            flag  = "<< watch this" if deleg >= 0.5 or hyp < 1.5 else ""
             lines.append(
                 f"| {label} | {d['count']} | {hyp:.1f}/4 | {deleg*100:.0f}% | {flag} |"
             )
@@ -138,7 +138,7 @@ def print_session_score(result: SessionScore):
                       "all messages were high-confidence")
     table.add_row("Hypothesis level",    f"{sem.hypothesis_level_avg:.1f}/4",
                   "0=no attempt, 4=tested hypothesis")
-    table.add_row("Agency score",        f"{sem.agency_score*100:.0f}%",
+    table.add_row("Ownership",            f"{sem.ownership_score*100:.0f}%",
                   "% of turns where you drove direction")
     table.add_row("Critical engagement", f"{sem.critical_engagement*100:.0f}%",
                   "pushed back / caught mistakes")
@@ -177,7 +177,7 @@ def print_session_score(result: SessionScore):
             hyp      = stats["hypothesis_avg"]
             deleg    = stats["delegation_rate"]
             count    = stats["count"]
-            flag = "[yellow]⚠ watch this[/yellow]" if deleg >= 0.5 or hyp < 1.5 else ""
+            flag = "[yellow]<< watch this[/yellow]" if deleg >= 0.5 or hyp < 1.5 else ""
             task_table.add_row(
                 label, str(count),
                 f"{hyp:.1f}/4",

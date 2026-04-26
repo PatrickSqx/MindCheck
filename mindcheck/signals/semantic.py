@@ -13,7 +13,7 @@ from mindcheck.parser import Session
 @dataclass
 class SemanticSignals:
     hypothesis_level_avg: float = 0.0    # 0–4 avg hypothesis quality
-    agency_score: float = 0.0            # 0–1 fraction of user-driven turns
+    ownership_score: float = 0.0            # 0–1 fraction of user-driven turns
     critical_engagement: float = 0.0     # 0–1 fraction with pushback / verification
     self_reliance: float = 0.0           # 0–1 showed prior attempt
     metacognition_score: float = 0.0     # 0–1 reflected on own approach
@@ -36,15 +36,29 @@ PROTOTYPES: dict[str, list[str]] = {
     # Hypothesis levels (0–4)
     # Each level should cover: coding, data analysis, research/writing, general reasoning
     "hypothesis_0": [
-        # Coding
+        # Coding — direct commands
         "Fix this. Do this for me. Make it work. Just do it. Write the code.",
         "This is broken. It doesn't work. I have an error.",
+        # Coding — vibe coding (specific but zero analysis)
+        "Add a button that submits the form. Make the sidebar collapsible.",
+        "Add error handling to this function. Make this responsive.",
+        "Create a new component for the dashboard. Add a loading spinner.",
+        "Change the color to blue. Move this div to the right. Make it bigger.",
+        "Add a search bar. Implement dark mode. Add pagination to the list.",
+        "Write a function that takes X and returns Y. Add input validation.",
+        "Refactor this into smaller functions. Add types to everything.",
         # Data / analysis
         "Run the analysis. Generate the report. Clean this data for me.",
         "Process this dataset. Build the model. Create the chart.",
         # Research / writing
         "Write this section. Summarize this paper. Find sources for this claim.",
         "Draft the introduction. Rewrite this paragraph. Create the outline.",
+        # Config / setup — direct setup commands
+        "Set up Docker for me. Configure the CI pipeline. Install nginx.",
+        "Write a Dockerfile. Set up the database. Create a Makefile.",
+        "Deploy this to production. Set up the environment. Configure the server.",
+        "Add authentication. Set up the API routes. Configure CORS.",
+        "Install these dependencies. Set up linting. Configure the build.",
         # General
         "Handle this. Take care of it. Do this task for me. Just complete it.",
     ],
@@ -59,6 +73,9 @@ PROTOTYPES: dict[str, list[str]] = {
         # Research / writing
         "The argument doesn't flow well. The structure feels off.",
         "The explanation isn't clear. Something is missing from this section.",
+        # Config / setup
+        "The build is failing. Docker won't start. The deploy didn't work.",
+        "Something's wrong with the server. The installation failed.",
         # General
         "This doesn't work correctly. The output is wrong. There's a problem somewhere.",
     ],
@@ -74,6 +91,10 @@ PROTOTYPES: dict[str, list[str]] = {
         # Research / writing
         "The argument breaks down in the third paragraph where I switch topics.",
         "The conclusion contradicts what I said in the introduction.",
+        # Config / setup
+        "The container crashes when it tries to bind port 80.",
+        "The build fails only on the CI server, works fine locally.",
+        "Permission denied on the /var/log directory specifically.",
         # General
         "The problem only happens under X condition. It works fine until Y occurs.",
         "It fails specifically when the input is large — small inputs are fine.",
@@ -92,6 +113,10 @@ PROTOTYPES: dict[str, list[str]] = {
         "I think the argument is weak because I'm assuming X without evidence.",
         "My guess is the reader loses track here because I haven't defined the key term yet.",
         "I suspect the structure is wrong — the conclusion should probably come earlier.",
+        # Config / setup
+        "I think the port conflict is because nginx is already running on 80.",
+        "I suspect the env variable isn't being loaded because the .env file is outside the build context.",
+        "My guess is the DNS isn't resolving because the container network is isolated.",
         # General
         "I think the root cause is X because Y only happens when Z is true.",
         "My hypothesis is that A is caused by B, not C, because the pattern matches B.",
@@ -109,71 +134,187 @@ PROTOTYPES: dict[str, list[str]] = {
         # Research / writing
         "I tried restructuring the argument but the same objection applies. Maybe the premise itself is wrong.",
         "I already cut 500 words and it's still too long. I think the second section can be merged with the third.",
+        # Config / setup
+        "I tried changing the port to 8080 and it works, so something else is bound to 80.",
+        "I already checked the firewall rules and they're fine, so it must be the Docker network config.",
+        "I tested with a fresh container and it works — so the issue is in the cached image layer.",
         # General
         "I already ruled out X and Y by testing them separately. The only remaining explanation is Z.",
         "I tried both approaches — A is faster but B is more accurate. Given our constraints, I think B is right.",
     ],
 
-    # Agency
+    # Ownership (user-driven vs ai-driven)
     "user_driven": [
+        # Steering direction
         "I want to understand how this works. Can you explain the tradeoffs?",
         "I've designed the architecture like this — does this make sense?",
         "I'm thinking about using X approach. What would you change?",
         "Here's what I've built so far. I need help with this specific part.",
+        # Making decisions
+        "Let's go with option A because it handles our scale better.",
+        "I'd rather use Postgres here — SQLite won't cut it for concurrent writes.",
+        "No, let's not do it that way. I want to keep it simple.",
+        # Setting scope and constraints
+        "Let's focus on the auth flow first, then tackle the UI later.",
+        "I need this to handle at most 1000 concurrent users.",
+        "Here's the context — we have a hard deadline and limited memory.",
+        # Iterating with own ideas
+        "What if we changed the retry logic to exponential backoff instead?",
+        "I want to try a different approach — what about using a queue here?",
+        # Casual / terse variants
+        "nah let's do X instead",
+        "I'd prefer Y actually",
     ],
     "ai_driven": [
+        # Deferring decisions
         "What should I do next? Tell me what to build. What's the best approach?",
         "Just decide for me. You know best. Whatever you think is fine.",
         "I'll do whatever you suggest. What do you recommend?",
+        # Passive acceptance
+        "sure go ahead. ok do it. sounds good just do that.",
+        "let's do what you said. yeah that works fine.",
+        "whatever you think. up to you. your call.",
+        # Asking AI to lead
+        "What should I focus on first? Which one is better?",
+        "Which framework should I pick? What technology should I use?",
+        "How should I structure this? What's the right way?",
+        # Lacking own perspective
+        "I don't have a preference. Either way is fine with me.",
+        "You pick. I'm not sure which is better.",
     ],
 
     # Critical engagement
     "critical": [
+        # Explicit disagreement
         "Wait, that doesn't seem right because. I disagree — here's why.",
         "Are you sure about that? I thought it worked differently.",
         "That approach would break if X happens. You missed the edge case.",
         "I checked your solution and it has a bug. Let me explain.",
+        # Questioning accuracy
+        "Hmm that doesn't match what the docs say. Let me double check.",
+        "I don't think that's correct — the API returns a list, not a dict.",
+        "Are you hallucinating? That function doesn't exist in this library.",
+        # Catching mistakes
+        "You forgot to handle the null case. What happens when input is empty?",
+        "This would fail on Windows — the path separator is different.",
+        "wait no that's wrong lol. that output doesn't match what I see.",
+        # Requesting justification
+        "Why did you choose that approach over X? What's the reasoning?",
+        "Can you justify that? I'm not convinced this is the right way.",
+        # Verifying output
+        "Let me test this first before we move on.",
+        "I ran your code and got a different result. Something's off.",
     ],
     "passive": [
+        # Accepting without checking
         "Thanks, looks good. That works, great. Perfect, I'll use that.",
         "OK I'll copy that. Great answer, thank you.",
+        "Awesome, exactly what I needed. Perfect thanks.",
+        "Got it, makes sense. I'll go with that.",
+        "Looks right to me. Ship it. LGTM.",
+        "Cool, moving on. Next thing.",
+        "ok great. nice. thanks that helps.",
+        "yep that works. good enough. done.",
+        "I trust your judgment on this one.",
+        "Sounds reasonable, let's go with it.",
     ],
 
     # Self-reliance
     "self_reliant": [
+        # Showed prior effort — coding
         "I tried X but it didn't work. I already attempted Y. I've been debugging this for an hour.",
         "I figured it out but want to double-check. I solved it but curious if there's a better way.",
         "I've narrowed it down to these three lines. I think I know the issue.",
+        # Showed prior effort — research
+        "I read the docs but they don't cover this case.",
+        "I've searched Stack Overflow and tried the top answers — none worked.",
+        "I already looked into this and found two approaches, but I'm unsure which fits.",
+        # Showed prior effort — casual/terse
+        "been stuck on this for a while, tried restarting and clearing cache.",
+        "I googled it but couldn't find anything relevant.",
+        "already tried the obvious fix, didn't help.",
+        # Partial solution
+        "I got it mostly working, just stuck on the last part.",
+        "Here's my current approach — it works for case A but not B.",
+        "I wrote a first draft but something feels off about the structure.",
     ],
     "not_self_reliant": [
+        # No attempt
         "I have no idea where to start. I don't know how to do this. Can you just write it?",
         "I give up. Can you fix it for me? I don't understand the error.",
+        # Immediate helplessness
+        "I'm completely lost. I don't even know what to search for.",
+        "I've never done this before, can you walk me through everything?",
+        "This is too hard. Can you just do it?",
+        "I don't want to think about it, just handle it.",
+        # Zero context provided
+        "it's broken help. fix please. doesn't work.",
+        "how do I do this? I have no clue.",
+        "Can someone just solve this for me?",
+        "I don't understand any of this.",
     ],
 
     # Metacognition
     "metacognitive": [
+        # Questioning own approach
         "Am I approaching this the wrong way? What am I missing in my thinking?",
         "I'm not sure my mental model of this is right. Can you critique my approach?",
         "What blind spots might I have here? Is this the right way to think about it?",
         "I want to make sure I understand, not just copy the solution.",
+        # Reflecting on process
+        "I keep making the same mistake — what's the pattern I'm missing?",
+        "I think I'm overcomplicating this. Am I overthinking it?",
+        "Maybe I'm looking at this from the wrong angle entirely.",
+        # Seeking understanding over answers
+        "Before you give me the fix, can you help me understand why it breaks?",
+        "I don't just want the answer, I want to know how to find it myself next time.",
+        "Walk me through the reasoning so I can learn the pattern.",
+        # Awareness of own gaps
+        "I realize I don't fully understand how X works under the hood.",
+        "I might be confused about the fundamentals here.",
     ],
     "not_metacognitive": [
+        # Wants answer only
         "Just give me the answer. I don't need the explanation. Skip the details.",
+        "Don't explain, just show me the code.",
+        "Too long, just tell me what to do.",
+        "I don't care why, just fix it.",
+        "Skip the theory, give me the solution.",
+        "Just the command please, no explanation needed.",
+        "TLDR what do I type?",
+        "Give me the short version.",
     ],
 
     # Delegation — outsourcing thinking/execution rather than engaging
     "delegation": [
+        # Direct handoff
         "Just do it. Fix it for me. Write the whole thing. Go ahead and implement it.",
         "Can you just handle this? Do whatever you think is best. You decide.",
         "Build this feature. Write this function. Generate the code. Create the file.",
         "I need you to write this for me. Can you take care of this? Please implement.",
         "Just complete it. Finish the rest. Do the remaining parts.",
+        # Terse delegation
+        "do it. make it. build it. write it. fix it.",
+        "go ahead. proceed. continue. keep going.",
+        "implement the whole thing end to end.",
+        # Outsourcing thinking
+        "Figure out the best approach and just do it.",
+        "You handle the design, I just need it done.",
+        "Take care of everything — I don't want to think about this.",
     ],
     "not_delegation": [
+        # Collaborative engagement
         "I tried this approach and want to understand why it fails.",
         "Here's my attempt — what did I get wrong?",
         "Can you explain how this works so I can fix it myself?",
         "I want to understand the tradeoffs before we decide.",
+        # Seeking guidance not execution
+        "Can you point me in the right direction? I'll write the code myself.",
+        "What should I look into? I want to learn how to solve this.",
+        "Give me hints, don't give me the full answer.",
+        "What concepts do I need to understand to fix this?",
+        "Help me think through this, not do it for me.",
+        "Can you review my approach rather than rewriting it?",
     ],
 
     # ── Task domains ──────────────────────────────────────────────────────────
@@ -230,6 +371,237 @@ PROTOTYPES: dict[str, list[str]] = {
     ],
 }
 
+# ── Chinese prototypes (separate centroids, no dilution) ─────────────────────
+# Keys use _zh suffix. Classification takes max(en, zh) similarity.
+
+PROTOTYPES_ZH: dict[str, list[str]] = {
+    "hypothesis_0_zh": [
+        # Pure delegation — no analysis
+        "帮我修一下。直接做吧。写好代码。搞定它。",
+        "帮我跑一下这个分析。生成报告。处理这个数据。",
+        "写一个函数。实现这个功能。建一个新的notebook。",
+        "成立专家组，讨论一个可行计划并执行。",
+        "专家组讨论并按计划执行。继续下一步。直接跑完。",
+        "帮我配一下环境。安装这个包。设置好数据库。",
+        "把这些整理成正式的交付。部署到生产环境。",
+        "写一下这个部分。帮我总结一下。整理一下格式。",
+        "加一个搜索功能。添加错误处理。做成响应式的。",
+        "直接进行下一步的任务吧。开始吧。继续。",
+    ],
+    "hypothesis_1_zh": [
+        # Symptom only — something's wrong but no specifics
+        "有个报错。代码跑不通。结果不对。",
+        "模型效果不好。数据有问题。输出不对。",
+        "这个不work。测试没通过。有什么地方不对。",
+        "构建失败了。安装不上。运行不了。",
+        "效果不太理想。数字对不上。有些奇怪。",
+        "strict太低了。coverage不够。结果不达标。",
+        "图表看起来不对。分析结果有问题。",
+        "notebook打不开了。文件有问题。",
+    ],
+    "hypothesis_2_zh": [
+        # Locates the problem — identifies where/when it fails
+        "这个不对吧，再检查一下，最后冻结的应该是459。",
+        "0.9412 / 0.3500 / 0.3500是pilot侧的吗？",
+        "endpoint pool本身大约只占split的19.6%，这是什么意思？",
+        "runway weight的endpoint pool比例和main还有boundary差很多？",
+        "pilot模型不是只看两端吗？为什么coverage能到75%？",
+        "那全split的话占比多少？后续coverage是否应该优先看整体？",
+        "错误出现在第42行。在提交空表单的时候会失败。",
+        "只有在缺失值的时候才会报错。小数据没问题，大数据就崩溃。",
+        "Q3的数据有异常，但Q1没有。",
+        "训练集上表现好但测试集上不行。",
+    ],
+    "hypothesis_3_zh": [
+        # Forms a hypothesis — proposes a cause
+        "我觉得问题是session没有在middleware之前初始化。",
+        "我怀疑模型过拟合了——训练准确率比验证高太多。",
+        "但是并不是任务目标变了才导致结果变好吧？",
+        "冻结基线对的口径是什么？原来的路径上没有优化空间了吗？",
+        "我觉得是因为特征共线性导致feature importance有误导性。",
+        "我猜是DNS没有解析因为容器网络是隔离的。",
+        "我觉得根本原因是X，因为Y只在Z为真的时候发生。",
+        "我怀疑是环境变量没有加载因为.env文件不在构建上下文里。",
+        "可能是缓存的问题。我觉得是之前的结果没有清掉。",
+        "我的假设是A是由B引起的，不是C，因为模式匹配B。",
+    ],
+    "hypothesis_4_zh": [
+        # Tested a hypothesis — tried something, drew conclusion
+        "我试过换模型了，tree和lgb都试了。",
+        "我已经把端口改成8080了，能跑，所以是别的东西占了80。",
+        "试了一下去掉异常值重新跑，相关性减弱了，确认是它们导致的。",
+        "我已经排除了X和Y，分别测试过了，唯一的解释就是Z。",
+        "我测了小数据集，模式一样，所以不是样本量的问题。",
+        "标准化之后问题依然存在，所以可能是模型架构的问题。",
+        "两种方案都试了——A更快但B更准。考虑到我们的限制，B更好。",
+        "用新的容器测试了可以跑，所以问题在缓存的镜像层。",
+        "前面做的那些探索都失败了，直到我们用blast分train val之后才改善。",
+        "我试了重构论点但同样的反驳依然成立。也许前提本身就是错的。",
+    ],
+
+    # Ownership
+    "user_driven_zh": [
+        "我想理解这个是怎么工作的。能解释一下取舍吗？",
+        "我设计的架构是这样的，你觉得合理吗？",
+        "我想用X方案。你觉得需要改什么？",
+        "我的想法是先做认证，再搞UI。",
+        "不，我不想那样做。我想保持简单。",
+        "我觉得咱们要规范化一下。",
+        "用另一个方案吧。我觉得这样更好。",
+        "先不压迫修改别的notebook了。",
+        "pilot侧strict要尽可能的高，coverage可以先不管。",
+        "我希望提交的这版可以直接运行得到结果。",
+        "不，要把所有的数据处理流程全部写进这个notebook。",
+        "我想问的就是相比于原来的探索我们做了什么改善。",
+    ],
+    "ai_driven_zh": [
+        "你觉得该怎么做？什么方案最好？",
+        "你决定吧。你比较懂。随便你。",
+        "你推荐什么？听你的。你说了算。",
+        "哪个好？我不太确定。都行吧。",
+        "我没有偏好。两个都可以。你选。",
+        "我应该先做什么？重点在哪？",
+        "不知道用哪个框架好。你建议呢？",
+        "该怎么组织？什么方式最合适？",
+        "好的按你说的来。嗯行。",
+    ],
+
+    # Critical engagement
+    "critical_zh": [
+        "等一下，这好像不对。我觉得应该不是这样。",
+        "你确定吗？我记得不是这样运行的。",
+        "这个方案如果遇到X情况就会出问题。你漏了边界情况。",
+        "我检查了你的方案，有bug。让我解释一下。",
+        "这个不对吧。文档上说的不一样。",
+        "你说的和我看到的结果不一致。有问题。",
+        "前面我们也做了很多尝试但都没成功。",
+        "但是并不是任务目标变了才导致结果变好吧？",
+        "我说的不是这个意思。再看一遍。",
+        "这个数据有点夸张了。再确认一下。",
+        "我跑了你的代码结果不一样。哪里有问题。",
+    ],
+    "passive_zh": [
+        "好的。没问题。可以。行。",
+        "看起来不错。就这样吧。",
+        "谢谢，很好。完美。就用这个。",
+        "好的我直接用了。好。明白了。",
+        "可以先这样吧。就这么办。继续。",
+        "嗯好。收到。了解。",
+        "有道理。就这样。",
+        "OK。下一个。没问题。",
+    ],
+
+    # Self-reliance
+    "self_reliant_zh": [
+        "我试过X但是不行。我已经debug了一个小时了。",
+        "我自己想出来了但想确认一下。有没有更好的方法？",
+        "我查了文档但没有覆盖这个情况。",
+        "我搜了Stack Overflow试了排名靠前的答案，都不行。",
+        "之前我们也做了很多尝试。前面做了那些探索都失败了。",
+        "我缩小范围到这三行了。我觉得我知道问题在哪。",
+        "基本弄好了，就差最后一部分。",
+        "我的方案对A有效但对B无效。",
+        "我试过两种方案了。A更快但B更准。",
+        "已经试过常规方法了，没用。",
+    ],
+    "not_self_reliant_zh": [
+        "完全不知道从哪开始。我不会做这个。",
+        "我放弃了。帮我修吧。我看不懂这个报错。",
+        "太难了。帮我做吧。不想想了。",
+        "怎么做？完全没头绪。",
+        "能不能直接帮我搞定？不懂。",
+        "这个我不理解。解释不了。",
+        "不知道搜什么。完全没方向。",
+        "从来没做过这个。能不能手把手教？",
+    ],
+
+    # Metacognition
+    "metacognitive_zh": [
+        "我的思路对吗？是不是方向搞错了？",
+        "我对这个的理解可能不对。能帮我审查一下我的思路吗？",
+        "我可能有盲点。这样思考对不对？",
+        "我想确保我理解了，不是单纯复制答案。",
+        "我是不是把这个搞复杂了？",
+        "可能我从根本上就想错了。",
+        "先别给答案，能帮我理解为什么会这样吗？",
+        "我想学会方法，不只是要结果。",
+        "我觉得我对基本概念可能还不够理解。",
+        "我的心智模型可能有问题。帮我想想。",
+    ],
+    "not_metacognitive_zh": [
+        "直接给答案。不需要解释。",
+        "别解释了，给我看代码就行。",
+        "太长了，直接告诉我怎么做。",
+        "不管为什么，修好就行。",
+        "跳过理论，给我方案。",
+        "简单说就行。TLDR。",
+        "直接告诉我输入什么命令。",
+    ],
+
+    # Delegation
+    "delegation_zh": [
+        "直接做吧。帮我写。全部搞定。",
+        "你来处理吧。你觉得最好怎么做就怎么做。",
+        "实现这个功能。写这个函数。生成代码。",
+        "帮我写一下。帮我处理。请实现。",
+        "做完剩下的。继续做。搞定它。",
+        "专家组讨论并执行。按计划执行。直接跑完。",
+        "你来想方案然后直接做。",
+        "全部帮我搞好。不想管了。",
+        "整理成正式的交付。打包好。",
+    ],
+    "not_delegation_zh": [
+        "我试了这个方案想知道为什么不行。",
+        "这是我的尝试，哪里做错了？",
+        "能解释一下原理吗？我自己来修。",
+        "我想先了解取舍再做决定。",
+        "给我提示就行，别直接给答案。",
+        "帮我审查一下思路，别直接重写。",
+        "我想学会方法，不只是要结果。",
+        "需要理解什么概念才能修好这个？",
+    ],
+
+    # Task domains
+    "task_code_zh": [
+        "写一个函数。修这个bug。实现这个功能。",
+        "代码报错了。debug一下。跑不通。",
+        "重构这段代码。加单元测试。代码review。",
+        "怎么在React里实现X？帮我写SQL查询。",
+        "这个类有问题。API调用失败了。测试没通过。",
+    ],
+    "task_data_zh": [
+        "分析这个数据集。训练一个分类器。建模预测。",
+        "跑个统计检验。做个可视化。清洗数据。",
+        "模型效果不好。应该用什么特征？过拟合了。",
+        "画个图。算相关性。评估模型准确率。",
+        "特征工程。数据预处理。交叉验证。coverage。strict。",
+    ],
+    "task_writing_zh": [
+        "写一个引言。编辑这段话。",
+        "总结这篇文章。帮我写邮件。",
+        "改简洁一点。改通顺一点。改专业一点。",
+        "写封求职信。生成报告。润色一下。",
+    ],
+    "task_research_zh": [
+        "解释一下transformer怎么工作的。X是什么？",
+        "X和Y有什么区别？底层原理是什么？",
+        "总结这篇论文。X方案的优缺点是什么？",
+        "我想更深入了解X。教我Y。",
+    ],
+    "task_planning_zh": [
+        "帮我设计架构。怎么组织项目结构？",
+        "该用X还是Y？什么设计模式好？",
+        "帮我做个计划。分析一下风险。下一步怎么做？",
+        "权衡一下利弊。帮我在这几个方案里选。",
+    ],
+    "task_config_zh": [
+        "怎么安装X？配一下环境。设置好工具。",
+        "Docker跑不起来。部署到生产。配置CI/CD。",
+        "包装不上。构建失败。权限不够。端口被占了。",
+        "配置环境变量。写Dockerfile。设置数据库。",
+    ],
+}
+
 _model = None
 _prototype_embeddings: dict[str, np.ndarray] = {}
 
@@ -270,15 +642,18 @@ def _get_model():
 def _get_prototype_embeddings() -> dict[str, np.ndarray]:
     """Compute prototype embeddings once, cache them.
 
-    Merges built-in PROTOTYPES with any user-learned prototypes saved by Tier 3
-    in ~/.mindcheck/learned_prototypes.json. Learned examples are appended to the
-    relevant hypothesis_N prototype so the embeddings improve over time.
+    Builds separate embeddings for English (PROTOTYPES) and Chinese (PROTOTYPES_ZH)
+    so that each language keeps its own focused centroid — no dilution.
+    Classification uses max(en, zh) similarity.
+
+    Also merges any user-learned prototypes saved by Tier 3 in
+    ~/.mindcheck/learned_prototypes.json.
     """
     global _prototype_embeddings
     if not _prototype_embeddings:
         model = _get_model()
 
-        # Start from a copy of built-in prototypes
+        # Start from a copy of built-in prototypes (English)
         extended: dict[str, list[str]] = {k: list(v) for k, v in PROTOTYPES.items()}
 
         # Merge learned prototypes saved by Tier 3
@@ -288,19 +663,21 @@ def _get_prototype_embeddings() -> dict[str, np.ndarray]:
         if learned_path.exists():
             try:
                 learned = _json.loads(learned_path.read_text(encoding="utf-8"))
-                added = 0
                 for entry in learned:
                     level = entry.get("level")
                     text  = entry.get("text", "").strip()
                     if isinstance(level, int) and 0 <= level <= 4 and text:
                         extended[f"hypothesis_{level}"].append(text)
-                        added += 1
-                if added:
-                    pass  # Loaded silently — no noise on every run
             except Exception:
                 pass  # Corrupt file — fall back to built-ins only
 
+        # Encode English prototypes
         for key, texts in extended.items():
+            combined = " ".join(texts)
+            _prototype_embeddings[key] = model.encode(combined, normalize_embeddings=True)
+
+        # Encode Chinese prototypes (separate centroids)
+        for key, texts in PROTOTYPES_ZH.items():
             combined = " ".join(texts)
             _prototype_embeddings[key] = model.encode(combined, normalize_embeddings=True)
 
@@ -324,33 +701,38 @@ def _classify_message(text: str) -> dict:
     def sim(key: str) -> float:
         return _cosine_sim(msg_emb, protos[key])
 
-    # Hypothesis level (0–4 by highest similarity)
+    def sim_bilingual(key: str) -> float:
+        """Max of English and Chinese prototype similarity (no dilution)."""
+        en = sim(key)
+        zh_key = f"{key}_zh"
+        zh = sim(zh_key) if zh_key in protos else en
+        return max(en, zh)
+
+    # Hypothesis level (0–4 by highest similarity across both languages)
     hyp_scores = {
-        0: sim("hypothesis_0"),
-        1: sim("hypothesis_1"),
-        2: sim("hypothesis_2"),
-        3: sim("hypothesis_3"),
-        4: sim("hypothesis_4"),
+        level: max(sim(f"hypothesis_{level}"),
+                   sim(f"hypothesis_{level}_zh") if f"hypothesis_{level}_zh" in protos else 0.0)
+        for level in range(5)
     }
     sorted_hyp = sorted(hyp_scores.items(), key=lambda x: x[1], reverse=True)
     hypothesis_level = sorted_hyp[0][0]
     # Confidence = gap between top and runner-up. Small gap = uncertain classification.
     hypothesis_confidence = sorted_hyp[0][1] - sorted_hyp[1][1]
 
-    # Task domain — highest similarity wins
+    # Task domain — highest similarity wins (bilingual)
     _TASK_DOMAINS = ("task_code", "task_data", "task_writing",
                      "task_research", "task_planning", "task_config")
-    task_domain = max(_TASK_DOMAINS, key=sim).replace("task_", "")
+    task_domain = max(_TASK_DOMAINS, key=sim_bilingual).replace("task_", "")
 
     return {
         "hypothesis_level":      hypothesis_level,
         "hypothesis_confidence": hypothesis_confidence,   # 0.0 = tie, ~0.1+ = confident
         "task_domain":           task_domain,
-        "is_user_driven":    sim("user_driven")    > sim("ai_driven"),
-        "is_critical":       sim("critical")       > sim("passive")          + 0.05,
-        "is_self_reliant":   sim("self_reliant")   > sim("not_self_reliant") + 0.05,
-        "is_metacognitive":  sim("metacognitive")  > sim("not_metacognitive")+ 0.1,
-        "is_delegation":     sim("delegation")     > sim("not_delegation")   + 0.02,
+        "is_user_driven":    sim_bilingual("user_driven")    > sim_bilingual("ai_driven"),
+        "is_critical":       sim_bilingual("critical")       > sim_bilingual("passive")          + 0.05,
+        "is_self_reliant":   sim_bilingual("self_reliant")   > sim_bilingual("not_self_reliant") + 0.05,
+        "is_metacognitive":  sim_bilingual("metacognitive")  > sim_bilingual("not_metacognitive")+ 0.1,
+        "is_delegation":     sim_bilingual("delegation")     > sim_bilingual("not_delegation")   + 0.02,
         "low_confidence":    hypothesis_confidence < 0.04,  # flag for prototype review
     }
 
@@ -379,7 +761,7 @@ def extract_semantic(session: Session) -> SemanticSignals:
 
     n = len(classifications)
     sig.hypothesis_level_avg = sum(c["hypothesis_level"] for c in classifications) / n
-    sig.agency_score = sum(1 for c in classifications if c["is_user_driven"]) / n
+    sig.ownership_score = sum(1 for c in classifications if c["is_user_driven"]) / n
     sig.critical_engagement = sum(1 for c in classifications if c["is_critical"]) / n
     sig.self_reliance = sum(1 for c in classifications if c["is_self_reliant"]) / n
     sig.metacognition_score = sum(1 for c in classifications if c["is_metacognitive"]) / n

@@ -40,7 +40,7 @@ class SessionScore:
 
         Full weights (Tier 2+):
           - Hypothesis / question framing: 25%
-          - Agency:                        20%
+          - Ownership:                     20%
           - Critical engagement:           20%
           - Self-reliance:                 15%
           - Metacognition:                 10%
@@ -75,7 +75,7 @@ class SessionScore:
 
         # ── Tier 2+: full weighted composite ───────────────────────────────
         hypothesis_score = sem.hypothesis_level_avg / 4 * 100
-        agency_score     = sem.agency_score * 100
+        ownership_score     = sem.ownership_score * 100
         critical_score   = sem.critical_engagement * 100
         self_reliance    = sem.self_reliance * 100
         metacognition    = sem.metacognition_score * 100
@@ -85,7 +85,7 @@ class SessionScore:
         composite = (
             structural_score * 0.05 +
             hypothesis_score * 0.25 +
-            agency_score     * 0.20 +
+            ownership_score     * 0.20 +
             critical_score   * 0.20 +
             self_reliance    * 0.15 +
             metacognition    * 0.10 +
@@ -107,6 +107,7 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
     mtime = session.file_path.stat().st_mtime
     cached = get_cached(session.file_path, mtime, max_tier)
     if cached is not None:
+        cached.session.archived = session.archived
         return cached
 
     result = SessionScore(session=session)

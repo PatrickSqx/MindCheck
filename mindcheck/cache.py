@@ -21,7 +21,7 @@ from mindcheck.signals.semantic import SemanticSignals
 from mindcheck.signals.llm import LLMSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 3  # bumped: task-domain breakdown (v3)
+CACHE_VERSION = 6  # bumped: bilingual prototypes — separate EN/ZH centroids (v6)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def _serialize(score) -> str:
         # Semantic signals (per_message excluded — too large)
         "semantic": {
             "hypothesis_level_avg": sem.hypothesis_level_avg,
-            "agency_score":         sem.agency_score,
+            "ownership_score":         sem.ownership_score,
             "critical_engagement":  sem.critical_engagement,
             "self_reliance":        sem.self_reliance,
             "metacognition_score":  sem.metacognition_score,
@@ -218,7 +218,7 @@ def _deserialize(data_json: str):
     sem_d = d["semantic"]
     semantic = SemanticSignals(
         hypothesis_level_avg = sem_d["hypothesis_level_avg"],
-        agency_score         = sem_d["agency_score"],
+        ownership_score         = sem_d["ownership_score"],
         critical_engagement  = sem_d["critical_engagement"],
         self_reliance        = sem_d["self_reliance"],
         metacognition_score  = sem_d["metacognition_score"],
