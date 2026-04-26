@@ -39,28 +39,18 @@ def _personalized_band(score: float, task_breakdown: dict, sem=None,
     else:
         label = ("Heavy delegation", "red") if is_rich else ("Heavy delegation", "")
 
-    # Find strongest and weakest domains
-    strength = ""
-    weakness = ""
+    # Categorize domains into strengths and weaknesses
+    strengths = []
+    weaknesses = []
     if task_breakdown:
-        sorted_domains = sorted(
-            task_breakdown.items(),
-            key=lambda x: x[1]["hypothesis_avg"],
-            reverse=True,
-        )
-        # Strongest: highest hypothesis with low delegation
-        for domain, stats in sorted_domains:
-            if stats["count"] >= 3 and stats["delegation_rate"] < 0.4:
-                strength = _TASK_LABELS_SHORT.get(domain, domain)
-                strength_hyp = stats["hypothesis_avg"]
-                break
-        # Weakest: lowest hypothesis or highest delegation
-        for domain, stats in reversed(sorted_domains):
-            if stats["count"] >= 3 and domain != strength:
-                weakness = _TASK_LABELS_SHORT.get(domain, domain)
-                weakness_deleg = stats["delegation_rate"]
-                weakness_hyp = stats["hypothesis_avg"]
-                break
+        for domain, stats in task_breakdown.items():
+            if stats["count"] < 3:
+                continue
+            name = _TASK_LABELS_SHORT.get(domain, domain)
+            if stats["delegation_rate"] >= 0.5 or stats["hypothesis_avg"] < 1.5:
+                weaknesses.append(name)
+            elif stats["hypothesis_avg"] >= 2.0 and stats["delegation_rate"] < 0.4:
+                strengths.append(name)
 
     # Build personalized message
     if is_rich:
@@ -68,13 +58,21 @@ def _personalized_band(score: float, task_breakdown: dict, sem=None,
     else:
         band_text = label[0]
 
-    if strength and weakness:
-        if weakness_deleg >= 0.5:
-            detail = f"strong in {strength}, but heavy delegation on {weakness} is pulling your score down."
-        elif weakness_hyp < 1.5:
-            detail = f"strong in {strength}, but shallow thinking on {weakness} tasks is holding you back."
+    if strengths and weaknesses:
+        s = " and ".join(strengths)
+        w = " and ".join(weaknesses)
+        if len(weaknesses) >= 3:
+            detail = f"engaged on {s}, but delegating heavily across {w}."
+        elif len(weaknesses) == 2:
+            detail = f"engaged on {s}, but {w} need more independent thinking."
         else:
-            detail = f"strongest in {strength}, weakest in {weakness}."
+            detail = f"engaged on {s}, but leaning on AI too much for {w}."
+    elif weaknesses:
+        w = " and ".join(weaknesses)
+        detail = f"heavy delegation across {w} -- try forming hypotheses before asking."
+    elif strengths:
+        s = " and ".join(strengths)
+        detail = f"strong thinking on {s} -- keep pushing deeper."
     elif sem and sem.critical_engagement < 0.3:
         detail = "low critical engagement -- try questioning AI outputs more before accepting."
     elif sem and sem.hypothesis_level_avg < 1.5:
