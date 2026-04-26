@@ -20,6 +20,78 @@ _TASK_LABELS = {
     "config":   "Config / setup",
 }
 
+_TASK_LABELS_SHORT = {
+    "code": "code", "data": "data", "writing": "writing",
+    "research": "research", "planning": "planning", "config": "config",
+}
+
+
+def _personalized_band(score: float, task_breakdown: dict, sem=None,
+                       is_rich: bool = True) -> str:
+    """Generate a personalized score interpretation based on actual patterns."""
+    # Score band label
+    if score >= 70:
+        label = ("Strong engagement", "green") if is_rich else ("Strong engagement", "")
+    elif score >= 50:
+        label = ("Moderate engagement", "yellow") if is_rich else ("Moderate engagement", "")
+    elif score >= 30:
+        label = ("Passive engagement", "yellow") if is_rich else ("Passive engagement", "")
+    else:
+        label = ("Heavy delegation", "red") if is_rich else ("Heavy delegation", "")
+
+    # Find strongest and weakest domains
+    strength = ""
+    weakness = ""
+    if task_breakdown:
+        sorted_domains = sorted(
+            task_breakdown.items(),
+            key=lambda x: x[1]["hypothesis_avg"],
+            reverse=True,
+        )
+        # Strongest: highest hypothesis with low delegation
+        for domain, stats in sorted_domains:
+            if stats["count"] >= 3 and stats["delegation_rate"] < 0.4:
+                strength = _TASK_LABELS_SHORT.get(domain, domain)
+                strength_hyp = stats["hypothesis_avg"]
+                break
+        # Weakest: lowest hypothesis or highest delegation
+        for domain, stats in reversed(sorted_domains):
+            if stats["count"] >= 3 and domain != strength:
+                weakness = _TASK_LABELS_SHORT.get(domain, domain)
+                weakness_deleg = stats["delegation_rate"]
+                weakness_hyp = stats["hypothesis_avg"]
+                break
+
+    # Build personalized message
+    if is_rich:
+        band_text = f"[{label[1]}]{label[0]}[/{label[1]}]"
+    else:
+        band_text = label[0]
+
+    if strength and weakness:
+        if weakness_deleg >= 0.5:
+            detail = f"strong in {strength}, but heavy delegation on {weakness} is pulling your score down."
+        elif weakness_hyp < 1.5:
+            detail = f"strong in {strength}, but shallow thinking on {weakness} tasks is holding you back."
+        else:
+            detail = f"strongest in {strength}, weakest in {weakness}."
+    elif sem and sem.critical_engagement < 0.3:
+        detail = "low critical engagement -- try questioning AI outputs more before accepting."
+    elif sem and sem.hypothesis_level_avg < 1.5:
+        detail = "try forming a hypothesis before asking -- even a rough guess helps."
+    else:
+        # Fallback to generic
+        if score >= 70:
+            detail = "you're driving, hypothesising, and thinking critically."
+        elif score >= 50:
+            detail = "solid in places, but room to push deeper before asking."
+        elif score >= 30:
+            detail = "leaning on AI for direction more than thinking it through first."
+        else:
+            detail = "most asks hand off the thinking entirely."
+
+    return f"{band_text} -- {detail}"
+
 
 def generate_report(results: list[SessionScore], period: str = "") -> str:
     """Generate a markdown report from scored sessions."""
@@ -32,11 +104,30 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
     best = max(results, key=lambda r: r.composite)
     worst = min(results, key=lambda r: r.composite)
 
+    # Build aggregated task breakdown for personalized band
+    agg_for_band: dict[str, dict] = {}
+    for r in results:
+        for domain, stats in r.semantic.task_breakdown.items():
+            if domain not in agg_for_band:
+                agg_for_band[domain] = {"count": 0, "hyp_sum": 0.0, "deleg_sum": 0.0}
+            agg_for_band[domain]["count"]    += stats["count"]
+            agg_for_band[domain]["hyp_sum"]  += stats["hypothesis_avg"] * stats["count"]
+            agg_for_band[domain]["deleg_sum"] += stats["delegation_rate"] * stats["count"]
+    band_breakdown = {}
+    for domain, d in agg_for_band.items():
+        band_breakdown[domain] = {
+            "count": d["count"],
+            "hypothesis_avg": d["hyp_sum"] / d["count"],
+            "delegation_rate": d["deleg_sum"] / d["count"],
+        }
+    band_text = _personalized_band(avg_score, band_breakdown, is_rich=False)
+
     lines = [
         f"# MindCheck Report — {period}",
         "",
         f"**Cognitive Engagement Score: {avg_score:.0f}/100**",
         f"Sessions analysed: {len(results)}",
+        f"*{band_text}*",
         "",
         "---",
         "",
@@ -87,11 +178,11 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         "## Highlights",
         "",
         f"**Strongest session:** {best.session.id}  ",
-        f"Score: {best.composite:.0f} · "
+        f"Score: {best.composite:.0f} - "
         f"Hypothesis: {best.semantic.hypothesis_level_avg:.1f}/4",
         "",
         f"**Weakest session:** {worst.session.id}  ",
-        f"Score: {worst.composite:.0f} · "
+        f"Score: {worst.composite:.0f} - "
         f"Hypothesis: {worst.semantic.hypothesis_level_avg:.1f}/4",
         "",
         "---",
@@ -188,19 +279,9 @@ def print_session_score(result: SessionScore):
         console.print("  [bold]Task breakdown[/bold]")
         console.print(task_table)
 
-    # Score interpretation band
-    score = result.composite
-    if score >= 70:
-        band = "[green]Strong engagement[/green] — you're driving, hypothesising, and thinking critically."
-    elif score >= 50:
-        band = "[yellow]Moderate engagement[/yellow] — solid in places, but room to push deeper before asking."
-    elif score >= 30:
-        band = "[yellow]Passive engagement[/yellow] — leaning on AI for direction more than thinking it through first."
-    else:
-        band = "[red]Heavy delegation[/red] — most asks hand off the thinking entirely. Try forming a hypothesis first."
-
-    console.print(f"\n  {band}")
+    # Personalized interpretation
+    console.print(f"\n  {_personalized_band(result.composite, sem.task_breakdown, sem)}")
     console.print(
-        "  [dim]Hypothesis guide: 0 = dump the problem · 1 = describe symptom · "
-        "2 = locate cause · 3 = form hypothesis · 4 = tested a hypothesis[/dim]\n"
+        "  [dim]Hypothesis guide: 0 = dump the problem | 1 = describe symptom | "
+        "2 = locate cause | 3 = form hypothesis | 4 = tested a hypothesis[/dim]\n"
     )
