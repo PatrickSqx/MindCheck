@@ -130,12 +130,14 @@ mindcheck config --show
 
 | Tool | Auto-discovered |
 |---|---|
-| Claude Code (CLI + VS Code) | ✅ `~/.claude/projects/` |
+| Claude Code (CLI + VS Code + Desktop) | ✅ `~/.claude/projects/` |
 | Cursor | ✅ `~/.cursor/projects/` |
-| Codex (CLI + Desktop) | ✅ `~/.codex/` and `LocalAppData/Codex/` |
+| Codex (CLI + VS Code + Desktop) | ✅ `~/.codex/` and `LocalAppData/Codex/` |
 | Gemini CLI | ✅ `~/.gemini/` |
 
 Agent/subagent sessions are automatically filtered — only human conversations are scored.
+
+Works on macOS, Linux, and Windows. Session paths are auto-detected per platform.
 
 ---
 
