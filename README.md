@@ -83,6 +83,13 @@ mindcheck analyze ./sessions/
 # Auto-discover and report on last 30 days
 mindcheck report --last 30d
 
+# Custom time window — any number of days
+mindcheck report --last 90d
+mindcheck report --last 365d
+
+# Exclude archived sessions
+mindcheck report --last 365d --skip-archived
+
 # Show all auto-discovered session directories on this machine
 mindcheck scan
 
