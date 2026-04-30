@@ -90,6 +90,10 @@ mindcheck report --last 365d
 # Exclude archived sessions
 mindcheck report --last 365d --skip-archived
 
+# JSON output (for piping to other tools)
+mindcheck score session.jsonl --json
+mindcheck report --last 30d --json
+
 # Show all auto-discovered session directories on this machine
 mindcheck scan
 

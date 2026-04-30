@@ -17,6 +17,35 @@ class SessionScore:
     llm: LLMSignals = field(default_factory=LLMSignals)
     composite: float = 0.0
 
+    def to_dict(self) -> dict:
+        """Return a JSON-serialisable dict of the score breakdown."""
+        s = self.session
+        st = self.structural
+        sem = self.semantic
+        return {
+            "session_id": s.id,
+            "tool": s.tool,
+            "archived": s.archived,
+            "turn_count": s.turn_count,
+            "composite_score": round(self.composite, 1),
+            "tier1_score": round(self.tier1_score, 1),
+            "signals": {
+                "hypothesis_level_avg": round(sem.hypothesis_level_avg, 2),
+                "ownership": round(sem.ownership_score, 2),
+                "critical_engagement": round(sem.critical_engagement, 2),
+                "self_reliance": round(sem.self_reliance, 2),
+                "metacognition": round(sem.metacognition_score, 2),
+                "delegation_penalty": round(sem.delegation_penalty, 2),
+            },
+            "structural": {
+                "question_ratio": round(st.question_ratio, 2),
+                "message_ratio": round(st.message_ratio, 2),
+                "turn_count": st.turn_count,
+                "avg_user_length": round(st.avg_user_length, 1),
+            },
+            "task_breakdown": sem.task_breakdown,
+        }
+
     @property
     def tier1_score(self) -> float:
         """Structural-only score (0–100), always available regardless of tier."""

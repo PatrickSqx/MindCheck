@@ -23,75 +23,117 @@ def main():
 @click.option("--tier", default=2, type=click.IntRange(1, 3),
               help="Max analysis tier (1=rules, 2=embeddings, 3=LLM)")
 @click.option("--skip-archived", is_flag=True, help="Exclude archived sessions")
-def analyze(path: str, output: str, tier: int, skip_archived: bool):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON (for piping to other tools)")
+def analyze(path: str, output: str, tier: int, skip_archived: bool, as_json: bool):
     """Analyse sessions in PATH and generate a report."""
+    import json
     from mindcheck.parser import discover_sessions
     from mindcheck.scorer import score_sessions
     from mindcheck.report import generate_report
 
-    console.print(Panel(f"[bold]MindCheck[/bold] — analysing [cyan]{path}[/cyan]"))
+    if not as_json:
+        console.print(Panel(f"[bold]MindCheck[/bold] — analysing [cyan]{path}[/cyan]"))
 
     sessions = discover_sessions(Path(path), skip_archived=skip_archived)
     if not sessions:
-        console.print("[red]No sessions found.[/red]")
+        if as_json:
+            click.echo(json.dumps({"error": "No sessions found", "sessions": []}, indent=2))
+        else:
+            console.print("[red]No sessions found.[/red]")
         return
 
-    archived_count = sum(1 for s in sessions if s.archived)
-    if archived_count:
-        console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions ([dim]{archived_count} archived[/dim])")
-    else:
-        console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions")
+    if not as_json:
+        archived_count = sum(1 for s in sessions if s.archived)
+        if archived_count:
+            console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions ([dim]{archived_count} archived[/dim])")
+        else:
+            console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions")
 
     results = score_sessions(sessions, max_tier=tier)
-    report = generate_report(results)
 
-    Path(output).write_text(report, encoding="utf-8")
-    console.print(f"[green]Report saved to {output}[/green]")
+    if as_json:
+        avg_score = sum(r.composite for r in results) / len(results)
+        json_output = {
+            "path": str(path),
+            "session_count": len(results),
+            "average_score": round(avg_score, 1),
+            "sessions": [r.to_dict() for r in results],
+        }
+        click.echo(json.dumps(json_output, indent=2))
+    else:
+        report = generate_report(results)
+        Path(output).write_text(report, encoding="utf-8")
+        console.print(f"[green]Report saved to {output}[/green]")
 
 
 @main.command()
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--tier", default=2, type=click.IntRange(1, 3))
-def score(file: str, tier: int):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON (for piping to other tools)")
+def score(file: str, tier: int, as_json: bool):
     """Score a single session FILE."""
+    import json
     from mindcheck.parser import parse_session
     from mindcheck.scorer import score_session
     from mindcheck.report import print_session_score
 
     session = parse_session(Path(file))
     if not session:
-        console.print("[red]Could not parse session.[/red]")
+        if as_json:
+            click.echo(json.dumps({"error": "Could not parse session"}, indent=2))
+        else:
+            console.print("[red]Could not parse session.[/red]")
         return
 
     result = score_session(session, max_tier=tier)
-    print_session_score(result)
+    if as_json:
+        click.echo(json.dumps(result.to_dict(), indent=2))
+    else:
+        print_session_score(result)
 
 
 @main.command()
 @click.option("--last", default="30d", help="Time window e.g. 7d, 30d, 90d")
 @click.option("--tier", default=2, type=click.IntRange(1, 3))
 @click.option("--skip-archived", is_flag=True, help="Exclude archived sessions")
-def report(last: str, tier: int, skip_archived: bool):
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON (for piping to other tools)")
+def report(last: str, tier: int, skip_archived: bool, as_json: bool):
     """Generate a report from auto-discovered sessions."""
+    import json
     from mindcheck.parser import auto_discover_sessions
     from mindcheck.scorer import score_sessions
     from mindcheck.report import generate_report, print_report
 
     sessions = auto_discover_sessions(window=last, skip_archived=skip_archived)
     if not sessions:
-        console.print("[yellow]No sessions found in known directories.[/yellow]")
-        console.print("Try: mindcheck analyze <path>")
+        if as_json:
+            click.echo(json.dumps({"error": "No sessions found", "sessions": []}, indent=2))
+        else:
+            console.print("[yellow]No sessions found in known directories.[/yellow]")
+            console.print("Try: mindcheck analyze <path>")
         return
 
-    archived_count = sum(1 for s in sessions if s.archived)
-    msg = f"Found [cyan]{len(sessions)}[/cyan] sessions across the last [cyan]{last}[/cyan]"
-    if archived_count:
-        msg += f" ([dim]{archived_count} archived[/dim])"
-    console.print(msg)
+    if not as_json:
+        archived_count = sum(1 for s in sessions if s.archived)
+        msg = f"Found [cyan]{len(sessions)}[/cyan] sessions across the last [cyan]{last}[/cyan]"
+        if archived_count:
+            msg += f" ([dim]{archived_count} archived[/dim])"
+        console.print(msg)
 
     results = score_sessions(sessions, max_tier=tier)
-    report_text = generate_report(results)
-    print_report(report_text)
+
+    if as_json:
+        avg_score = sum(r.composite for r in results) / len(results)
+        output = {
+            "period": last,
+            "session_count": len(results),
+            "average_score": round(avg_score, 1),
+            "sessions": [r.to_dict() for r in results],
+        }
+        click.echo(json.dumps(output, indent=2))
+    else:
+        report_text = generate_report(results)
+        print_report(report_text)
 
 
 @main.command()
