@@ -3,6 +3,7 @@ Scorer — aggregates signals into a composite cognitive engagement score.
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from mindcheck.parser import Session
 from mindcheck.signals.structural import StructuralSignals, extract_structural
 from mindcheck.signals.semantic import SemanticSignals, extract_semantic
@@ -15,6 +16,8 @@ class SessionScore:
     structural: StructuralSignals = field(default_factory=StructuralSignals)
     semantic: SemanticSignals = field(default_factory=SemanticSignals)
     llm: LLMSignals = field(default_factory=LLMSignals)
+    session_type: str = "coding"        # "coding" | "research" | "creative" | "casual"
+    session_type_confidence: float = 0.0
     composite: float = 0.0
 
     def to_dict(self) -> dict:
@@ -27,6 +30,7 @@ class SessionScore:
             "tool": s.tool,
             "archived": s.archived,
             "turn_count": s.turn_count,
+            "session_type": self.session_type,
             "composite_score": round(self.composite, 1),
             "tier1_score": round(self.tier1_score, 1),
             "signals": {
@@ -64,17 +68,10 @@ class SessionScore:
         """
         Composite score (0–100) weighted across signal categories.
 
-        Weights are redistributed based on which tiers ran, so Tier 1-only
-        scores are still meaningful rather than collapsing to near-zero.
-
-        Full weights (Tier 2+):
-          - Hypothesis / question framing: 25%
-          - Ownership:                     20%
-          - Critical engagement:           20%
-          - Self-reliance:                 15%
-          - Metacognition:                 10%
-          - Structural ratios:              5%
-          - Delegation penalty:           -20pts max
+        Weights vary by session type (coding/research/creative/casual) —
+        loaded from session_type.SCORING_WEIGHTS. This ensures research
+        conversations aren't penalised for asking questions, and creative
+        sessions aren't penalised for delegation.
 
         Tier 1 only — structural signals carry 100% of weight:
           - Question ratio:    40%  (curiosity vs commands)
@@ -82,9 +79,11 @@ class SessionScore:
           - Message ratio:     20%  (how much the user writes)
           - Prior attempts:    10%  (showed effort before asking)
         """
+        from mindcheck.signals.session_type import SCORING_WEIGHTS
+
         s = self.structural
         sem = self.semantic
-        llm = self.llm
+        w = SCORING_WEIGHTS.get(self.session_type, SCORING_WEIGHTS["coding"])
 
         # ── Tier 1: structural score (always computed) ──────────────────────
         structural_score = (
@@ -96,15 +95,14 @@ class SessionScore:
 
         # ── Tier 1 only: rescale so structural carries full weight ──────────
         if max_tier == 1:
-            # Apply delegation penalty even in Tier 1 (keyword-detectable)
             delegation_ratio = s.delegation_count / max(s.turn_count, 1)
-            penalty = min(delegation_ratio * 30, 20)
+            penalty = min(delegation_ratio * 30, w["delegation_max"])
             self.composite = max(0.0, min(100.0, structural_score - penalty))
             return self.composite
 
-        # ── Tier 2+: full weighted composite ───────────────────────────────
+        # ── Tier 2+: weighted composite using session-type weights ─────────
         hypothesis_score = sem.hypothesis_level_avg / 4 * 100
-        ownership_score     = sem.ownership_score * 100
+        ownership_score  = sem.ownership_score * 100
         critical_score   = sem.critical_engagement * 100
         self_reliance    = sem.self_reliance * 100
         metacognition    = sem.metacognition_score * 100
@@ -112,13 +110,13 @@ class SessionScore:
         # LLM refinement (Tier 3) is already baked into semantic.hypothesis_level_avg
         # by score_session() before this method is called — no separate adjustment needed.
         composite = (
-            structural_score * 0.05 +
-            hypothesis_score * 0.25 +
-            ownership_score     * 0.20 +
-            critical_score   * 0.20 +
-            self_reliance    * 0.15 +
-            metacognition    * 0.10 +
-            (sem.delegation_penalty * -20)
+            structural_score * w["structural"] +
+            hypothesis_score * w["hypothesis"] +
+            ownership_score  * w["ownership"] +
+            critical_score   * w["critical_engagement"] +
+            self_reliance    * w["self_reliance"] +
+            metacognition    * w["metacognition"] +
+            (sem.delegation_penalty * -w["delegation_max"])
         )
 
         self.composite = max(0.0, min(100.0, composite))
@@ -133,8 +131,20 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
     """
     from mindcheck.cache import get_cached, save_cached
 
-    mtime = session.file_path.stat().st_mtime
-    cached = get_cached(session.file_path, mtime, max_tier)
+    # For imported sessions (many conversations from one file), make the
+    # cache key unique by appending the session ID to the path.
+    is_import = session.tool in ("claude_chat", "chatgpt")
+    if is_import:
+        cache_path = Path(f"{session.file_path}#{session.id}")
+    else:
+        cache_path = session.file_path
+
+    try:
+        mtime = session.file_path.stat().st_mtime
+    except OSError:
+        mtime = 0.0   # file gone (e.g. temp extract) — skip cache lookup
+
+    cached = get_cached(cache_path, mtime, max_tier)
     if cached is not None:
         cached.session.archived = session.archived
         return cached
@@ -146,7 +156,13 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
 
     # Tier 2: embeddings (local, free)
     if max_tier >= 2:
-        result.semantic = extract_semantic(session)
+        # Classify session type first — determines prototype overrides & scoring weights
+        from mindcheck.signals.session_type import classify_session_type
+        stype = classify_session_type(session)
+        result.session_type = stype.type
+        result.session_type_confidence = stype.confidence
+
+        result.semantic = extract_semantic(session, session_type=stype.type)
 
     # Tier 3: LLM classification (optional, cheap)
     # Only runs if a provider is configured via `mindcheck config`
@@ -160,7 +176,7 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
                 result.semantic.hypothesis_level_avg = result.llm.hypothesis_level_avg
 
     result.compute_composite(max_tier=max_tier)
-    save_cached(session.file_path, mtime, max_tier, result)
+    save_cached(cache_path, mtime, max_tier, result)
     return result
 
 

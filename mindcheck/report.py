@@ -131,8 +131,8 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         "",
         "## Session breakdown",
         "",
-        "| Session | Tool | T1 | T2 | Hypothesis | Ownership | Critical |",
-        "|---|---|---|---|---|---|---|",
+        "| Session | Tool | Type | T1 | T2 | Hypothesis | Ownership | Critical |",
+        "|---|---|---|---|---|---|---|---|",
     ]
 
     for r in sorted(results, key=lambda x: x.composite, reverse=True):
@@ -140,7 +140,8 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         sem = r.semantic
         tag = " [archived]" if s.archived else ""
         lines.append(
-            f"| {s.id[:40]}{tag} | {s.tool} | {r.tier1_score:.0f} | {r.composite:.0f} "
+            f"| {s.id[:40]}{tag} | {s.tool} | {r.session_type} "
+            f"| {r.tier1_score:.0f} | {r.composite:.0f} "
             f"| {sem.hypothesis_level_avg:.1f}/4 "
             f"| {sem.ownership_score*100:.0f}% "
             f"| {sem.critical_engagement*100:.0f}% |"
@@ -209,6 +210,7 @@ def print_session_score(result: SessionScore):
     table.add_column("Value", style="white")
     table.add_column("Notes", style="dim")
 
+    table.add_row("Session type", f"{result.session_type}", "auto-detected")
     table.add_row("Composite score (T2)", f"{result.composite:.0f}/100", "semantic signals")
     table.add_row("Structural score (T1)", f"{result.tier1_score:.0f}/100", "structure only")
 

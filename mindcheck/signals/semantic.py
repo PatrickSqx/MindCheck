@@ -258,6 +258,7 @@ PROTOTYPES: dict[str, list[str]] = {
     "metacognitive": [
         # Questioning own approach
         "Am I approaching this the wrong way? What am I missing in my thinking?",
+        "Am I thinking about this wrong? Maybe I'm overcomplicating the architecture.",
         "I'm not sure my mental model of this is right. Can you critique my approach?",
         "What blind spots might I have here? Is this the right way to think about it?",
         "I want to make sure I understand, not just copy the solution.",
@@ -269,9 +270,14 @@ PROTOTYPES: dict[str, list[str]] = {
         "Before you give me the fix, can you help me understand why it breaks?",
         "I don't just want the answer, I want to know how to find it myself next time.",
         "Walk me through the reasoning so I can learn the pattern.",
+        "Can you explain how this works so I can implement it myself?",
+        "Help me understand the concept, not just the solution.",
         # Awareness of own gaps
         "I realize I don't fully understand how X works under the hood.",
         "I might be confused about the fundamentals here.",
+        # Learning-oriented requests
+        "I want to learn how to solve this type of problem, not just get the answer.",
+        "Can you teach me the underlying principle so I recognize this pattern?",
     ],
     "not_metacognitive": [
         # Wants answer only
@@ -301,6 +307,9 @@ PROTOTYPES: dict[str, list[str]] = {
         "Figure out the best approach and just do it.",
         "You handle the design, I just need it done.",
         "Take care of everything — I don't want to think about this.",
+        # "For me" pattern — key delegation signal
+        "Fix this for me. Do this for me. Solve this for me.",
+        "Handle this for me. Write this for me. Debug this for me.",
     ],
     "not_delegation": [
         # Collaborative engagement
@@ -602,6 +611,155 @@ PROTOTYPES_ZH: dict[str, list[str]] = {
     ],
 }
 
+# ── Per-type prototype overrides ─────────────────────────────────────────────
+# These capture how signals manifest *differently* in non-coding sessions.
+# At classification time, these are blended with the base prototypes when
+# the session type is known, giving a more accurate read.
+#
+# Key insight: "explain X to me" is hypothesis_0 in a coding context (lazy)
+# but legitimate engagement in a research context.
+
+SESSION_TYPE_OVERRIDES: dict[str, dict[str, list[str]]] = {
+    "research": {
+        # In research, asking deep questions IS engagement — not delegation
+        "hypothesis_0": [
+            # Only truly zero-effort research asks
+            "Tell me about X. What is X. Give me info on X.",
+            "Just summarize it. Give me the answer.",
+            "告诉我X是什么。简单说一下。给我答案。",
+        ],
+        "hypothesis_2": [
+            # Focused, specific research questions = locating the problem space
+            "What's the difference between X and Y in terms of Z?",
+            "How does X handle the case where Y happens?",
+            "I read that X does Y — but how does that work with Z?",
+            "Explain specifically how X interacts with Y under condition Z.",
+            "X和Y在Z方面有什么区别？",
+            "X在Y情况下是怎么处理的？",
+            "我看到说X会导致Y——但这和Z怎么兼容？",
+        ],
+        "hypothesis_3": [
+            # Research hypotheses — forming mental models
+            "I think X works this way because of Y — is that right?",
+            "My understanding is that X and Y are related because Z.",
+            "I think the key difference is Z — the other factors don't matter as much.",
+            "Based on what I've read, I believe X because Y.",
+            "So if I understand correctly, X happens because of Y?",
+            "我觉得X是这样运作的因为Y——对吗？",
+            "我的理解是X和Y相关因为Z。",
+            "基于我读到的，我认为X是因为Y。",
+        ],
+        # Research delegation is narrower — only "just give me answers" counts
+        "delegation": [
+            "Just give me the summary. Don't explain, just list the facts.",
+            "I don't want to think about it. Just tell me the answer.",
+            "直接给我总结。别解释了。直接告诉我答案。",
+        ],
+        "not_delegation": [
+            "Can you explain how X works? I want to understand the concept.",
+            "Walk me through the reasoning. Help me understand why.",
+            "What's the intuition behind X? Teach me the fundamentals.",
+            "I want to build a mental model of how X works.",
+            "What's the difference between X and Y? How do they compare?",
+            "How does X work under the hood? What are the tradeoffs?",
+            "Why does X happen? What causes this? Can you teach me?",
+            "解释一下X怎么工作的？我想理解这个概念。",
+            "帮我理解一下为什么。背后的逻辑是什么？",
+            "X的直觉是什么？教我基础知识。",
+            "X和Y有什么区别？怎么对比？为什么会这样？",
+        ],
+        # Ownership in research = steering the inquiry
+        "user_driven": [
+            "I specifically want to understand X, not Y.",
+            "Let's focus on the Z aspect — that's what I need to grasp.",
+            "I already know X, so skip that. I need to understand Y.",
+            "Can we go deeper on this specific point?",
+            "我想了解的是X，不是Y。",
+            "我们重点看Z这个方面。",
+            "X我已经知道了，我需要理解的是Y。",
+        ],
+    },
+    "creative": {
+        # In creative work, directing the AI IS ownership
+        "hypothesis_0": [
+            # Creative delegation is different — only totally passive counts
+            "Write something. Just make something up. Whatever you want.",
+            "写点什么。随便写。你随意。",
+        ],
+        "hypothesis_2": [
+            # Specific creative direction = showing engagement
+            "The tone should be melancholic but hopeful at the end.",
+            "I want the opening to hook the reader with a question.",
+            "Make it sound like a conversation between two old friends.",
+            "Use shorter sentences for tension, longer ones for reflection.",
+            "语气要忧郁但结尾要有希望。",
+            "开头用一个问题吸引读者。",
+            "写得像两个老朋友之间的对话。",
+        ],
+        "hypothesis_3": [
+            # Creative hypotheses — trying an approach, knowing why
+            "I think the piece needs more conflict in the middle section because the tension drops.",
+            "The problem is the voice shifts between paragraphs — I want consistent first person.",
+            "I think a metaphor about water would work better here because the theme is about flow.",
+            "我觉得中间部分需要更多冲突因为张力下降了。",
+            "问题是段落之间的声音在变——我想要一致的第一人称。",
+            "我觉得用水的比喻更好因为主题是关于流动的。",
+        ],
+        # Creative delegation is much narrower
+        "delegation": [
+            "Write the whole thing, I don't care how. Just finish it.",
+            "Whatever style you want. I have no preferences.",
+            "全部你来写。我不管。随便什么风格。",
+        ],
+        "not_delegation": [
+            "Write a poem about autumn with a bittersweet tone.",
+            "Draft an email that's professional but warm.",
+            "Help me write an introduction — I want it to start with an anecdote.",
+            "Make it more concise but keep the emotional impact.",
+            "写一首关于秋天的诗，带点苦涩。",
+            "帮我写一封专业但温暖的邮件。",
+            "帮我写个开头——我想用一个小故事开始。",
+        ],
+        # Creative ownership = aesthetic direction
+        "user_driven": [
+            "Make it darker. I want a more ironic tone.",
+            "No, that's too formal. Make it conversational.",
+            "I like the structure but the ending needs to be stronger.",
+            "Change the metaphor — use fire instead of water.",
+            "太正式了。改口语化一点。",
+            "结构可以但结尾要更有力。",
+            "换个比喻——用火不用水。",
+        ],
+        # Creative critical engagement = iterating on drafts
+        "critical": [
+            "That doesn't capture the mood I wanted. It should feel more urgent.",
+            "No, that's too cheerful. Make it darker. The tone is wrong.",
+            "The second paragraph loses the reader. Too many details.",
+            "Good start but the ending is weak. Needs a stronger closing line.",
+            "This sounds generic. Make it more specific to my situation.",
+            "That's not what I asked for. Try again with a different angle.",
+            "The style is off. I wanted something more poetic, less prosaic.",
+            "没有抓到我想要的感觉。应该更紧迫。",
+            "不对，太欢快了。改暗一点。语气不对。",
+            "第二段太啰嗦了。细节太多。",
+            "结尾太弱了。需要更有力的收尾。",
+        ],
+    },
+    "casual": {
+        # Casual chat has relaxed expectations — short messages are normal
+        "delegation": [
+            # Only aggressive outsourcing counts as delegation in casual
+            "Figure everything out for me. Handle my whole day.",
+            "帮我全部搞定。别让我想了。",
+        ],
+        "not_delegation": [
+            "What do you think about X? Quick question.",
+            "Any recommendations? What's your take?",
+            "你觉得X怎么样？快速问一下。推荐一下。",
+        ],
+    },
+}
+
 _model = None
 _prototype_embeddings: dict[str, np.ndarray] = {}
 
@@ -684,17 +842,46 @@ def _get_prototype_embeddings() -> dict[str, np.ndarray]:
     return _prototype_embeddings
 
 
+# ── Override prototype embeddings (per session type) ─────────────────────────
+_override_embeddings: dict[str, dict[str, np.ndarray]] = {}
+
+
+def _get_override_embeddings(session_type: str) -> dict[str, np.ndarray]:
+    """Compute and cache override prototype embeddings for a session type."""
+    global _override_embeddings
+    if session_type not in _override_embeddings:
+        overrides = SESSION_TYPE_OVERRIDES.get(session_type, {})
+        if not overrides:
+            _override_embeddings[session_type] = {}
+            return _override_embeddings[session_type]
+
+        model = _get_model()
+        embs = {}
+        for key, texts in overrides.items():
+            combined = " ".join(texts)
+            embs[key] = model.encode(combined, normalize_embeddings=True)
+        _override_embeddings[session_type] = embs
+
+    return _override_embeddings[session_type]
+
+
 def _cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b))  # both already normalized
 
 
-def _classify_message(text: str) -> dict:
+def _classify_message(text: str, session_type: str = "coding") -> dict:
     """
     Classify a single user message against all prototype categories.
     Returns similarity scores (0–1) for each signal.
+
+    When session_type is not "coding", type-specific override prototypes are
+    blended in: for each signal that has an override, the override similarity
+    is averaged with the base similarity, nudging the classification towards
+    type-appropriate behavior.
     """
     model = _get_model()
     protos = _get_prototype_embeddings()
+    overrides = _get_override_embeddings(session_type) if session_type != "coding" else {}
 
     msg_emb = model.encode(text, normalize_embeddings=True)
 
@@ -702,27 +889,53 @@ def _classify_message(text: str) -> dict:
         return _cosine_sim(msg_emb, protos[key])
 
     def sim_bilingual(key: str) -> float:
-        """Max of English and Chinese prototype similarity (no dilution)."""
+        """Max of English and Chinese prototype similarity (no dilution).
+        If an override exists for this key, blend it in to shift the centroid
+        towards session-type-appropriate patterns.
+        Delegation/not_delegation use 70/30 blend (stronger override) because
+        these signals differ most across session types."""
         en = sim(key)
         zh_key = f"{key}_zh"
         zh = sim(zh_key) if zh_key in protos else en
-        return max(en, zh)
+        base = max(en, zh)
+
+        if key in overrides:
+            override_score = _cosine_sim(msg_emb, overrides[key])
+            # Stronger blend for delegation signals (differ most across types)
+            if "delegation" in key:
+                return override_score * 0.7 + base * 0.3
+            return override_score * 0.6 + base * 0.4
+
+        return base
 
     # Hypothesis level (0–4 by highest similarity across both languages)
-    hyp_scores = {
-        level: max(sim(f"hypothesis_{level}"),
-                   sim(f"hypothesis_{level}_zh") if f"hypothesis_{level}_zh" in protos else 0.0)
-        for level in range(5)
-    }
+    hyp_scores = {}
+    for level in range(5):
+        base_key = f"hypothesis_{level}"
+        en = sim(base_key)
+        zh_key = f"hypothesis_{level}_zh"
+        zh = sim(zh_key) if zh_key in protos else 0.0
+        base = max(en, zh)
+
+        # Blend override if available
+        if base_key in overrides:
+            override_score = _cosine_sim(msg_emb, overrides[base_key])
+            hyp_scores[level] = override_score * 0.6 + base * 0.4
+        else:
+            hyp_scores[level] = base
+
     sorted_hyp = sorted(hyp_scores.items(), key=lambda x: x[1], reverse=True)
     hypothesis_level = sorted_hyp[0][0]
     # Confidence = gap between top and runner-up. Small gap = uncertain classification.
     hypothesis_confidence = sorted_hyp[0][1] - sorted_hyp[1][1]
 
-    # Task domain — highest similarity wins (bilingual)
+    # Task domain — highest similarity wins (bilingual, no overrides needed)
     _TASK_DOMAINS = ("task_code", "task_data", "task_writing",
                      "task_research", "task_planning", "task_config")
-    task_domain = max(_TASK_DOMAINS, key=sim_bilingual).replace("task_", "")
+    task_domain_sim = lambda key: max(
+        sim(key), sim(f"{key}_zh") if f"{key}_zh" in protos else 0.0
+    )
+    task_domain = max(_TASK_DOMAINS, key=task_domain_sim).replace("task_", "")
 
     return {
         "hypothesis_level":      hypothesis_level,
@@ -731,14 +944,18 @@ def _classify_message(text: str) -> dict:
         "is_user_driven":    sim_bilingual("user_driven")    > sim_bilingual("ai_driven"),
         "is_critical":       sim_bilingual("critical")       > sim_bilingual("passive")          + 0.05,
         "is_self_reliant":   sim_bilingual("self_reliant")   > sim_bilingual("not_self_reliant") + 0.05,
-        "is_metacognitive":  sim_bilingual("metacognitive")  > sim_bilingual("not_metacognitive")+ 0.1,
+        "is_metacognitive":  sim_bilingual("metacognitive")  > sim_bilingual("not_metacognitive"),
         "is_delegation":     sim_bilingual("delegation")     > sim_bilingual("not_delegation")   + 0.02,
         "low_confidence":    hypothesis_confidence < 0.04,  # flag for prototype review
     }
 
 
-def extract_semantic(session: Session) -> SemanticSignals:
-    """Run Tier 2 embedding classification on all user messages."""
+def extract_semantic(session: Session, session_type: str = "coding") -> SemanticSignals:
+    """Run Tier 2 embedding classification on all user messages.
+
+    When session_type is provided, per-type prototype overrides are used
+    to adjust classification for non-coding conversations.
+    """
     sig = SemanticSignals()
     user_msgs = session.user_messages
 
@@ -752,7 +969,7 @@ def extract_semantic(session: Session) -> SemanticSignals:
         # single words / button clicks / confirmations add noise, not signal.
         if len(text) < 12:
             continue
-        result = _classify_message(text)
+        result = _classify_message(text, session_type=session_type)
         result["content"] = text[:100]
         classifications.append(result)
 

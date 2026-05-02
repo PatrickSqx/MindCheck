@@ -21,7 +21,7 @@ from mindcheck.signals.semantic import SemanticSignals
 from mindcheck.signals.llm import LLMSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 6  # bumped: bilingual prototypes — separate EN/ZH centroids (v6)
+CACHE_VERSION = 7  # bumped: session type detection + per-type scoring weights (v7)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -162,6 +162,7 @@ def _serialize(score) -> str:
             "task_breakdown":       sem.task_breakdown,
         },
         "composite": score.composite,
+        "session_type": score.session_type,
     })
 
 
@@ -227,7 +228,8 @@ def _deserialize(data_json: str):
     )
 
     result = SessionScore(session=session)
-    result.structural = structural
-    result.semantic   = semantic
-    result.composite  = d["composite"]
+    result.structural    = structural
+    result.semantic      = semantic
+    result.composite     = d["composite"]
+    result.session_type  = d.get("session_type", "coding")
     return result

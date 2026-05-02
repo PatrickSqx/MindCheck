@@ -1,5 +1,6 @@
 """
-Session parser — reads JSONL/JSON/SQLite from Claude, Cursor, Codex, Gemini.
+Session parser — reads JSONL/JSON/SQLite from Claude, Cursor, Codex, Gemini,
+Claude Chat, and ChatGPT exports.
 Extracts user messages only (AI responses are discarded for analysis).
 """
 
@@ -21,7 +22,7 @@ class Message:
 @dataclass
 class Session:
     id: str
-    tool: str           # "claude" | "cursor" | "codex" | "gemini"
+    tool: str           # "claude" | "cursor" | "codex" | "gemini" | "claude_chat" | "chatgpt"
     file_path: Path
     messages: list[Message] = field(default_factory=list)
     created_at: Optional[datetime] = None
@@ -101,6 +102,9 @@ def parse_session(file_path: Path) -> Optional[Session]:
         if suffix == ".jsonl":
             return _parse_jsonl(file_path, tool)
         elif suffix == ".json":
+            # Check if this is a Claude Chat or ChatGPT export (array of conversations)
+            if tool in ("claude_chat", "chatgpt"):
+                return None  # Multi-conversation files handled by parse_export()
             return _parse_json(file_path, tool)
         elif suffix == ".db" or suffix == ".sqlite":
             return _parse_sqlite(file_path, tool)
@@ -108,6 +112,59 @@ def parse_session(file_path: Path) -> Optional[Session]:
         return None
 
     return None
+
+
+def parse_export(file_path: Path, format: str = "auto") -> list[Session]:
+    """Parse an exported conversations file (Claude Chat or ChatGPT).
+
+    Supports both raw JSON files and ZIP archives containing JSON files.
+    Returns a list of Session objects — one per conversation.
+    """
+    import zipfile
+    import tempfile
+
+    # Handle ZIP archives — extract JSON files and parse each
+    if zipfile.is_zipfile(file_path) and file_path.suffix.lower() == ".zip":
+        all_sessions = []
+        with zipfile.ZipFile(file_path) as zf:
+            json_files = sorted(n for n in zf.namelist() if n.endswith(".json"))
+            for jf in json_files:
+                tmp_dir = Path(tempfile.mkdtemp())
+                tmp_file = tmp_dir / Path(jf).name
+                try:
+                    with zf.open(jf) as src, open(tmp_file, "wb") as dst:
+                        dst.write(src.read())
+                    extracted = parse_export(tmp_file, format=format)
+                    # Point file_path back to the original ZIP so scorer
+                    # can stat() it for caching (temp files are deleted below)
+                    for s in extracted:
+                        s.file_path = file_path
+                    all_sessions.extend(extracted)
+                finally:
+                    tmp_file.unlink(missing_ok=True)
+                    tmp_dir.rmdir()
+        return all_sessions
+
+    # Handle directories — scan for JSON files inside
+    if file_path.is_dir():
+        all_sessions = []
+        for jf in sorted(file_path.rglob("*.json")):
+            all_sessions.extend(parse_export(jf, format=format))
+        # Also check for zips
+        for zf in sorted(file_path.rglob("*.zip")):
+            if "conversations" in zf.name.lower() or "chatgpt" in zf.name.lower():
+                all_sessions.extend(parse_export(zf, format=format))
+        return all_sessions
+
+    if format == "auto":
+        format = _detect_export_format(file_path)
+
+    if format == "claude_chat":
+        return _parse_claude_chat_export(file_path)
+    elif format == "chatgpt":
+        return _parse_chatgpt_export(file_path)
+    else:
+        return []
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -331,6 +388,191 @@ def _try_parse_blob(value) -> list[Message]:
         return messages
     except Exception:
         return []
+
+
+def _detect_export_format(file_path: Path) -> str:
+    """Auto-detect whether a JSON file is a Claude Chat or ChatGPT export."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            # Read just enough to identify the format
+            chunk = f.read(2000)
+            if '"chat_messages"' in chunk and '"sender"' in chunk:
+                return "claude_chat"
+            if '"mapping"' in chunk and '"current_node"' in chunk:
+                return "chatgpt"
+    except Exception:
+        pass
+    return "unknown"
+
+
+def _parse_claude_chat_export(file_path: Path) -> list[Session]:
+    """Parse Claude Chat export (conversations.json from claude.ai).
+
+    Format: array of conversations, each with chat_messages where
+    sender is "human" or "assistant".
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    sessions = []
+    for conv in data:
+        messages = []
+        chat_msgs = conv.get("chat_messages", [])
+
+        for msg in chat_msgs:
+            sender = msg.get("sender", "")
+            text = msg.get("text", "")
+
+            # Also try content[0].text if text is empty
+            if not text:
+                content_list = msg.get("content", [])
+                if isinstance(content_list, list):
+                    for block in content_list:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = block.get("text", "")
+                            break
+
+            if not text:
+                continue
+
+            ts = _extract_timestamp(msg)
+
+            if sender == "human":
+                messages.append(Message("user", text.strip(), ts))
+            elif sender == "assistant":
+                messages.append(Message("assistant", text.strip(), ts))
+
+        if not messages:
+            continue
+
+        created_at = None
+        raw_ts = conv.get("created_at")
+        if raw_ts:
+            try:
+                created_at = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+            except Exception:
+                pass
+
+        conv_id = conv.get("uuid", conv.get("id", file_path.stem))
+        conv_name = conv.get("name", "")
+        session_id = conv_name[:50] if conv_name else conv_id[:50]
+
+        sessions.append(Session(
+            id=session_id,
+            tool="claude_chat",
+            file_path=file_path,
+            messages=messages,
+            created_at=created_at,
+        ))
+
+    return sessions
+
+
+def _parse_chatgpt_export(file_path: Path) -> list[Session]:
+    """Parse ChatGPT export (conversations-xxx.json from OpenAI data export).
+
+    Format: array of conversations using a tree structure (mapping dict with
+    parent/children nodes). We walk from root to current_node to reconstruct
+    the actual conversation thread.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    sessions = []
+    for conv in data:
+        mapping = conv.get("mapping", {})
+        if not mapping:
+            continue
+
+        # Find root node (the one with no parent or parent not in mapping)
+        root_id = None
+        for node_id, node in mapping.items():
+            parent = node.get("parent")
+            if parent is None or parent not in mapping:
+                root_id = node_id
+                break
+
+        if not root_id:
+            continue
+
+        # Walk the tree: follow first child from root to build the main thread
+        messages = []
+        current_id = root_id
+        visited = set()
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            node = mapping.get(current_id, {})
+            msg = node.get("message")
+
+            if msg:
+                author = msg.get("author", {})
+                role = author.get("role", "")
+                content_obj = msg.get("content", {})
+                content_type = content_obj.get("content_type", "")
+                parts = content_obj.get("parts", [])
+
+                # Extract text from parts
+                text_parts = []
+                for part in parts:
+                    if isinstance(part, str) and part.strip():
+                        text_parts.append(part.strip())
+                text = " ".join(text_parts)
+
+                if text:
+                    ts = None
+                    create_time = msg.get("create_time")
+                    if create_time and isinstance(create_time, (int, float)):
+                        try:
+                            ts = datetime.fromtimestamp(create_time)
+                        except Exception:
+                            pass
+
+                    if role == "user":
+                        messages.append(Message("user", text, ts))
+                    elif role == "assistant":
+                        messages.append(Message("assistant", text, ts))
+                    # Skip system, tool, and other roles
+
+            # Move to first child
+            children = node.get("children", [])
+            current_id = children[0] if children else None
+
+        if not messages:
+            continue
+
+        created_at = None
+        raw_ts = conv.get("create_time")
+        if raw_ts and isinstance(raw_ts, (int, float)):
+            try:
+                created_at = datetime.fromtimestamp(raw_ts)
+            except Exception:
+                pass
+
+        conv_id = conv.get("conversation_id", conv.get("id", ""))
+        title = conv.get("title", conv.get("name", ""))
+        session_id = title[:50] if title else conv_id[:50]
+
+        sessions.append(Session(
+            id=session_id,
+            tool="chatgpt",
+            file_path=file_path,
+            messages=messages,
+            created_at=created_at,
+        ))
+
+    return sessions
 
 
 def _extract_content(obj: dict) -> str:
