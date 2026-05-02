@@ -90,6 +90,11 @@ mindcheck report --last 365d
 # Exclude archived sessions
 mindcheck report --last 365d --skip-archived
 
+# Import Claude Chat or ChatGPT exports
+mindcheck import conversations.json
+mindcheck import chatgpt-export.zip
+mindcheck import ./export-folder/
+
 # JSON output (for piping to other tools)
 mindcheck score session.jsonl --json
 mindcheck report --last 30d --json
@@ -132,12 +137,14 @@ mindcheck config --show
 
 ## Supported formats
 
-| Tool | Auto-discovered |
+| Tool | How |
 |---|---|
-| Claude Code (CLI + VS Code + Desktop) | ✅ `~/.claude/projects/` |
-| Cursor | ✅ `~/.cursor/projects/` |
-| Codex (CLI + VS Code + Desktop) | ✅ `~/.codex/` and `LocalAppData/Codex/` |
-| Gemini CLI | ✅ `~/.gemini/` |
+| Claude Code (CLI + VS Code + Desktop) | Auto-discovered: `~/.claude/projects/` |
+| Cursor | Auto-discovered: `~/.cursor/projects/` |
+| Codex (CLI + VS Code + Desktop) | Auto-discovered: `~/.codex/` and `LocalAppData/Codex/` |
+| Gemini CLI | Auto-discovered: `~/.gemini/` |
+| Claude Chat (claude.ai) | Import: `mindcheck import conversations.json` |
+| ChatGPT | Import: `mindcheck import chatgpt-export.zip` |
 
 Agent/subagent sessions are automatically filtered — only human conversations are scored.
 
@@ -147,21 +154,23 @@ Works on macOS, Linux, and Windows. Session paths are auto-detected per platform
 
 ## Scoring methodology
 
-The composite score (0–100) is a weighted blend of semantic signals extracted from your messages:
+The composite score (0–100) is a weighted blend of semantic signals extracted from your messages. Weights adjust automatically based on the detected session type:
 
-| Signal | Weight | How it's measured |
-|---|---|---|
-| **Hypothesis quality** | 25% | Each message is classified on a 0–4 scale: 0 = no attempt ("fix this"), 1 = symptom only ("it's broken"), 2 = locates the problem ("fails on line 42"), 3 = forms a hypothesis ("I think X because Y"), 4 = tested a hypothesis ("I tried X, still fails, so maybe Y") |
-| **Ownership** | 20% | Whether you're steering the conversation ("I want to try X") vs deferring decisions ("what should I do?") |
-| **Critical engagement** | 20% | Whether you push back on AI responses ("that doesn't seem right because...") vs accepting passively ("looks good, thanks") |
-| **Self-reliance** | 15% | Whether you attempted the problem before asking ("I tried X but it didn't work") |
-| **Metacognition** | 10% | Whether you reflect on your own thinking ("am I approaching this wrong?") |
-| **Structural signals** | 5% | Question ratio, turn count, how much you write vs the AI |
-| **Delegation penalty** | up to −20 pts | Deducted when messages outsource thinking entirely ("just do it", "write the whole thing") |
+| Signal | Coding | Research | Creative | Casual |
+|---|---|---|---|---|
+| **Hypothesis quality** | 25% | 15% | 10% | 15% |
+| **Ownership** | 20% | 15% | 30% | 25% |
+| **Critical engagement** | 20% | 25% | 25% | 20% |
+| **Self-reliance** | 15% | 10% | 5% | 10% |
+| **Metacognition** | 10% | 20% | 10% | 10% |
+| **Structural signals** | 5% | 5% | 5% | 10% |
+| **Delegation penalty** | up to −20 | up to −10 | up to −10 | up to −5 |
+
+Session type is auto-detected from message content — research conversations aren't penalised for asking questions, and creative sessions aren't penalised for asking AI to write.
 
 ### How classification works
 
-**Tier 2** (default) uses a local embedding model to compare each message against prototype phrases for each signal via cosine similarity. No data leaves your machine.
+**Tier 2** (default) uses a local embedding model to compare each message against prototype phrases for each signal via cosine similarity. No data leaves your machine. Per-type prototype overrides adjust classification for non-coding sessions.
 
 **Tier 3** (optional) sends only individual low-confidence messages to an LLM for reclassification. High-confidence LLM results are saved locally and fed back into Tier 2's prototypes, so accuracy improves over time.
 
@@ -176,7 +185,8 @@ Everything runs locally. No data leaves your machine unless you explicitly enabl
 ## Roadmap
 
 - **v1.0** — Tier 1/2/3 scoring, four parsers, SQLite cache, multilingual support
-- **v1.1** — ChatGPT export parser, cross-session learning trajectory, prototype self-improvement loop
+- **v1.1** — ChatGPT + Claude Chat import, session type detection (coding/research/creative/casual), per-type scoring weights, classification test suite
+- **v1.2** — Cross-session learning trajectory, full Tier 3 signal expansion, prototype self-improvement loop, T2 vs T3 score comparison
 
 ---
 
