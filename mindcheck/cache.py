@@ -21,7 +21,7 @@ from mindcheck.signals.semantic import SemanticSignals
 from mindcheck.signals.llm import LLMSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 7  # bumped: session type detection + per-type scoring weights (v7)
+CACHE_VERSION = 9  # bumped: delegation prototype improvements (v9)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────

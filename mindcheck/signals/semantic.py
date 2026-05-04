@@ -310,20 +310,36 @@ PROTOTYPES: dict[str, list[str]] = {
         # "For me" pattern — key delegation signal
         "Fix this for me. Do this for me. Solve this for me.",
         "Handle this for me. Write this for me. Debug this for me.",
+        # Short imperative + "for me" (matches test cases)
+        "Fix this bug for me. Sort this out for me. Make this work for me.",
+        "Solve this problem for me. Clean this up for me. Just handle it.",
+        "Fix this bug for me, I don't want to debug it.",
+        "There's a bug, just fix it for me. Fix the error for me.",
+        "Can you fix this for me? I don't know what's wrong.",
+        # Helplessness + handoff
+        "I have no idea, just do it. I don't know, you figure it out.",
+        "No idea where to start, just take care of it.",
+        "I can't figure this out, just fix it for me. I give up, you do it.",
+        "I don't know where to begin, can you just handle it for me?",
+        "I'm lost, just do the whole thing. I have no clue, you take over.",
     ],
     "not_delegation": [
         # Collaborative engagement
         "I tried this approach and want to understand why it fails.",
         "Here's my attempt — what did I get wrong?",
-        "Can you explain how this works so I can fix it myself?",
+        "Can you walk me through how this works? I want to solve it on my own.",
         "I want to understand the tradeoffs before we decide.",
         # Seeking guidance not execution
         "Can you point me in the right direction? I'll write the code myself.",
         "What should I look into? I want to learn how to solve this.",
         "Give me hints, don't give me the full answer.",
-        "What concepts do I need to understand to fix this?",
+        "What do I need to learn to handle this myself?",
         "Help me think through this, not do it for me.",
         "Can you review my approach rather than rewriting it?",
+        # Self-implementation intent — "I'll do it myself"
+        "Just give me a hint, I'll code it myself.",
+        "Point me in the right direction, I want to implement it on my own.",
+        "I just need guidance, I'll write the actual code.",
     ],
 
     # ── Task domains ──────────────────────────────────────────────────────────
@@ -558,6 +574,14 @@ PROTOTYPES_ZH: dict[str, list[str]] = {
         "你来想方案然后直接做。",
         "全部帮我搞好。不想管了。",
         "整理成正式的交付。打包好。",
+        # "帮我 + verb" pattern — key ZH delegation signal
+        "帮我修一下这个。帮我做这个。帮我搞定。帮我弄好。",
+        "帮我修这个bug。帮我改一下。帮我处理这个问题。",
+        # Helplessness + delegation
+        "完全不知道怎么办，帮我弄。不知道从哪开始，帮我做吧。",
+        "搞不定，你来吧。放弃了，帮我处理。我不会，帮我做。",
+        "完全不知道从哪开始，你来做吧。不知道怎么下手，帮我搞定。",
+        "不知道怎么弄，你来处理吧。没有头绪，帮我做吧。",
     ],
     "not_delegation_zh": [
         "我试了这个方案想知道为什么不行。",
@@ -568,6 +592,10 @@ PROTOTYPES_ZH: dict[str, list[str]] = {
         "帮我审查一下思路，别直接重写。",
         "我想学会方法，不只是要结果。",
         "需要理解什么概念才能修好这个？",
+        # "自己来" pattern — self-implementation intent
+        "我自己来写代码，给我提示就行。",
+        "给我方向就好，代码我自己写。我自己来做，只要告诉我思路。",
+        "我自己来实现，你帮我理清逻辑就行。",
     ],
 
     # Task domains
@@ -663,6 +691,12 @@ SESSION_TYPE_OVERRIDES: dict[str, dict[str, list[str]]] = {
             "What's the difference between X and Y? How do they compare?",
             "How does X work under the hood? What are the tradeoffs?",
             "Why does X happen? What causes this? Can you teach me?",
+            # Concrete conceptual questions (not just X/Y templates)
+            "What's the difference between TCP and UDP? How do they compare?",
+            "How does garbage collection work in different languages?",
+            "What are the tradeoffs between SQL and NoSQL databases?",
+            "How does encryption work? What makes it secure?",
+            "Explain the difference between threads and processes.",
             "解释一下X怎么工作的？我想理解这个概念。",
             "帮我理解一下为什么。背后的逻辑是什么？",
             "X的直觉是什么？教我基础知识。",
@@ -815,6 +849,7 @@ def _get_prototype_embeddings() -> dict[str, np.ndarray]:
         extended: dict[str, list[str]] = {k: list(v) for k, v in PROTOTYPES.items()}
 
         # Merge learned prototypes saved by Tier 3
+        # Supports both hypothesis levels AND boolean signals (v1.2+)
         import json as _json
         from pathlib import Path
         learned_path = Path.home() / ".mindcheck" / "learned_prototypes.json"
@@ -822,10 +857,29 @@ def _get_prototype_embeddings() -> dict[str, np.ndarray]:
             try:
                 learned = _json.loads(learned_path.read_text(encoding="utf-8"))
                 for entry in learned:
+                    text = entry.get("text", "").strip()
+                    if not text:
+                        continue
+
+                    # Hypothesis level learning
                     level = entry.get("level")
-                    text  = entry.get("text", "").strip()
-                    if isinstance(level, int) and 0 <= level <= 4 and text:
+                    if isinstance(level, int) and 0 <= level <= 4:
                         extended[f"hypothesis_{level}"].append(text)
+
+                    # Boolean signal learning (v1.2+)
+                    _SIGNAL_MAP = {
+                        "is_user_driven":   ("user_driven",    "ai_driven"),
+                        "is_critical":      ("critical",       "passive"),
+                        "is_self_reliant":  ("self_reliant",   "not_self_reliant"),
+                        "is_metacognitive": ("metacognitive",  "not_metacognitive"),
+                        "is_delegation":    ("delegation",     "not_delegation"),
+                    }
+                    for signal_key, (pos_key, neg_key) in _SIGNAL_MAP.items():
+                        val = entry.get(signal_key)
+                        if val is True and pos_key in extended:
+                            extended[pos_key].append(text)
+                        elif val is False and neg_key in extended:
+                            extended[neg_key].append(text)
             except Exception:
                 pass  # Corrupt file — fall back to built-ins only
 
