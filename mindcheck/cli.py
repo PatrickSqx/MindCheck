@@ -136,6 +136,65 @@ def report(last: str, tier: int, skip_archived: bool, as_json: bool):
         print_report(report_text)
 
 
+@main.command("import")
+@click.argument("file", type=click.Path(exists=True))
+@click.option("--format", "fmt", default="auto",
+              type=click.Choice(["auto", "claude_chat", "chatgpt"]),
+              help="Export format (auto-detected by default)")
+@click.option("--tier", default=2, type=click.IntRange(1, 3))
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def import_cmd(file: str, fmt: str, tier: int, as_json: bool):
+    """Score conversations from a Claude Chat or ChatGPT export file."""
+    import json as json_mod
+    from mindcheck.parser import parse_export
+    from mindcheck.scorer import score_sessions
+    from mindcheck.report import generate_report, print_report, print_session_score
+
+    if not as_json:
+        console.print(Panel(f"[bold]MindCheck[/bold] -- importing [cyan]{file}[/cyan]"))
+
+    sessions = parse_export(Path(file), format=fmt)
+    if not sessions:
+        if as_json:
+            click.echo(json_mod.dumps({"error": "No conversations found"}, indent=2))
+        else:
+            console.print("[red]No conversations found.[/red]")
+            console.print("[dim]Supported formats: Claude Chat export, ChatGPT export[/dim]")
+        return
+
+    # Filter: require at least 3 meaningful user messages
+    sessions = [s for s in sessions
+                if sum(1 for m in s.user_messages if len(m.content.strip()) >= 12) >= 3]
+
+    if not sessions:
+        if as_json:
+            click.echo(json_mod.dumps({"error": "No conversations with enough messages"}, indent=2))
+        else:
+            console.print("[yellow]No conversations with enough messages to score.[/yellow]")
+        return
+
+    if not as_json:
+        console.print(f"Found [cyan]{len(sessions)}[/cyan] conversations to score")
+
+    results = score_sessions(sessions, max_tier=tier)
+
+    if as_json:
+        avg_score = sum(r.composite for r in results) / len(results)
+        output = {
+            "source": str(file),
+            "format": fmt if fmt != "auto" else results[0].session.tool,
+            "session_count": len(results),
+            "average_score": round(avg_score, 1),
+            "sessions": [r.to_dict() for r in results],
+        }
+        click.echo(json_mod.dumps(output, indent=2))
+    elif len(results) == 1:
+        print_session_score(results[0])
+    else:
+        report_text = generate_report(results)
+        print_report(report_text)
+
+
 @main.command()
 def scan():
     """Show all auto-discovered session directories on this machine."""
@@ -243,6 +302,80 @@ def config_cmd(key, provider, model, ollama_url, show):
                 console.print(f"    [cyan]{m_name:<30}[/cyan] {m_desc}{marker}")
         console.print()
         console.print("  [dim]Set model: mindcheck config --model <name>[/dim]")
+
+
+@main.command()
+@click.option("--last", default="90d", help="Time window e.g. 30d, 90d, 365d")
+@click.option("--period", default="auto",
+              type=click.Choice(["auto", "week", "month"]),
+              help="Group by week or month (auto picks based on window)")
+@click.option("--tier", default=2, type=click.IntRange(1, 3))
+@click.option("--skip-archived", is_flag=True, help="Exclude archived sessions")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def trajectory(last: str, period: str, tier: int, skip_archived: bool, as_json: bool):
+    """Show how your cognitive engagement changes over time."""
+    import json
+    from mindcheck.parser import auto_discover_sessions
+    from mindcheck.scorer import score_sessions
+    from mindcheck.report import print_trajectory
+    from mindcheck.trajectory import (
+        compute_trajectory, analyze_trend, save_trajectory_snapshot,
+    )
+
+    sessions = auto_discover_sessions(window=last, skip_archived=skip_archived)
+    if not sessions:
+        if as_json:
+            click.echo(json.dumps({"error": "No sessions found"}, indent=2))
+        else:
+            console.print("[yellow]No sessions found in known directories.[/yellow]")
+            console.print("Try: mindcheck analyze <path>")
+        return
+
+    if not as_json:
+        console.print(f"Found [cyan]{len(sessions)}[/cyan] sessions across the last [cyan]{last}[/cyan]")
+
+    results = score_sessions(sessions, max_tier=tier)
+
+    points = compute_trajectory(results, period=period)
+    trend = analyze_trend(points)
+
+    # Persist snapshot so historical data accumulates
+    if points:
+        save_trajectory_snapshot(points)
+
+    period_name = "month" if points and "-W" not in points[0].period_label else "week"
+
+    if as_json:
+        output = {
+            "period": last,
+            "grouping": period_name,
+            "direction": trend.direction,
+            "composite_slope": round(trend.composite_slope, 2),
+            "summary": trend.summary,
+            "signal_trends": {k: round(v, 2) for k, v in trend.signal_trends.items()},
+            "points": [
+                {
+                    "period": p.period_label,
+                    "sessions": p.session_count,
+                    "score": round(p.avg_composite, 1),
+                    "hypothesis": round(p.avg_hypothesis, 2),
+                    "ownership": round(p.avg_ownership, 3),
+                    "critical": round(p.avg_critical, 3),
+                    "self_reliance": round(p.avg_self_reliance, 3),
+                    "metacognition": round(p.avg_metacognition, 3),
+                    "delegation": round(p.avg_delegation, 3),
+                    "types": p.type_counts,
+                }
+                for p in points
+            ],
+        }
+        if trend.best_period:
+            output["best_period"] = trend.best_period.period_label
+        if trend.worst_period:
+            output["worst_period"] = trend.worst_period.period_label
+        click.echo(json.dumps(output, indent=2))
+    else:
+        print_trajectory(points, trend, period_name)
 
 
 @main.command()

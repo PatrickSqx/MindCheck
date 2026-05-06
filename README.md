@@ -24,6 +24,7 @@ MindCheck gives you a mirror.
 | **Self-reliance** | Do you attempt problems before asking for help? |
 | **Metacognition** | Do you reflect on your own approach and blind spots? |
 | **Delegation** | How often are you handing off thinking entirely? |
+| **Authenticity** | Is your engagement genuine, or performative? (subtext detection) |
 
 ### Score bands
 
@@ -95,9 +96,14 @@ mindcheck import conversations.json
 mindcheck import chatgpt-export.zip
 mindcheck import ./export-folder/
 
+# Track how your engagement changes over time
+mindcheck trajectory --last 90d
+mindcheck trajectory --last 365d --period month
+
 # JSON output (for piping to other tools)
 mindcheck score session.jsonl --json
 mindcheck report --last 30d --json
+mindcheck trajectory --last 90d --json
 
 # Show all auto-discovered session directories on this machine
 mindcheck scan
@@ -187,6 +193,8 @@ Everything runs locally. No data leaves your machine unless you explicitly enabl
 - **v1.0** — Tier 1/2/3 scoring, four parsers, SQLite cache, multilingual support
 - **v1.1** — ChatGPT + Claude Chat import, session type detection (coding/research/creative/casual), per-type scoring weights, classification test suite
 - **v1.2** — Cross-session learning trajectory, full Tier 3 signal expansion, prototype self-improvement loop, T2 vs T3 score comparison
+- **v1.3** — Subtext / illocutionary intent detection: authenticity scoring, say-then-contradict detection, performative engagement analysis (local + LLM)
+- **v1.4** — Team/org dashboards, comparative benchmarks, export to PDF/HTML
 
 ---
 

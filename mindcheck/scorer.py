@@ -8,6 +8,7 @@ from mindcheck.parser import Session
 from mindcheck.signals.structural import StructuralSignals, extract_structural
 from mindcheck.signals.semantic import SemanticSignals, extract_semantic
 from mindcheck.signals.llm import LLMSignals, extract_llm
+from mindcheck.signals.subtext import SubtextSignals, extract_subtext_local, extract_subtext_llm
 
 
 @dataclass
@@ -16,6 +17,7 @@ class SessionScore:
     structural: StructuralSignals = field(default_factory=StructuralSignals)
     semantic: SemanticSignals = field(default_factory=SemanticSignals)
     llm: LLMSignals = field(default_factory=LLMSignals)
+    subtext: SubtextSignals = field(default_factory=SubtextSignals)
     session_type: str = "coding"        # "coding" | "research" | "creative" | "casual"
     session_type_confidence: float = 0.0
     composite: float = 0.0
@@ -25,7 +27,7 @@ class SessionScore:
         s = self.session
         st = self.structural
         sem = self.semantic
-        return {
+        d = {
             "session_id": s.id,
             "tool": s.tool,
             "archived": s.archived,
@@ -49,6 +51,31 @@ class SessionScore:
             },
             "task_breakdown": sem.task_breakdown,
         }
+        # Include subtext analysis when patterns were found
+        sub = self.subtext
+        if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.llm_ran:
+            d["subtext"] = {
+                "authenticity_score": round(sub.authenticity_score, 2),
+                "contradictions_found": sub.contradictions_found,
+                "performative_count": sub.performative_count,
+                "say_then_contradict": sub.say_then_contradict,
+                "empty_self_reliance": sub.empty_self_reliance,
+                "passive_acceptance_streak": sub.passive_acceptance_streak,
+                "hypothesis_without_followup": sub.hypothesis_without_followup,
+                "llm_ran": sub.llm_ran,
+            }
+            if sub.llm_ran:
+                d["subtext"]["performative_hypothesis"] = sub.performative_hypothesis
+                d["subtext"]["fake_curiosity"] = sub.fake_curiosity
+        # Include T3 refinement info when available
+        if self.llm.ran and self.llm.messages_reclassified > 0:
+            d["tier3"] = {
+                "t2_score": round(self.llm.t2_composite, 1),
+                "t3_score": round(self.composite, 1),
+                "delta": round(self.composite - self.llm.t2_composite, 1),
+                "messages_reclassified": self.llm.messages_reclassified,
+            }
+        return d
 
     @property
     def tier1_score(self) -> float:
@@ -119,6 +146,16 @@ class SessionScore:
             (sem.delegation_penalty * -w["delegation_max"])
         )
 
+        # ── Subtext modifier: penalise performative engagement ─────────
+        # authenticity_score is 1.0 when genuine, < 1.0 when subtext
+        # patterns are found. Apply as a soft modifier — blends toward
+        # the raw composite so even low authenticity can't zero the score.
+        auth = self.subtext.authenticity_score
+        if auth < 1.0:
+            # Blend: 60% raw composite + 40% authenticity-weighted composite
+            # This means a 0.5 authenticity score reduces composite by ~20%
+            composite = composite * (0.6 + 0.4 * auth)
+
         self.composite = max(0.0, min(100.0, composite))
         return self.composite
 
@@ -164,16 +201,36 @@ def score_session(session: Session, max_tier: int = 2) -> SessionScore:
 
         result.semantic = extract_semantic(session, session_type=stype.type)
 
+    # Subtext analysis: runs on top of Tier 2 classifications (free)
+    if max_tier >= 2 and result.semantic.per_message:
+        result.subtext = extract_subtext_local(session, result.semantic.per_message)
+
     # Tier 3: LLM classification (optional, cheap)
     # Only runs if a provider is configured via `mindcheck config`
     if max_tier >= 3:
         from mindcheck.config import load_config, is_tier3_configured
         cfg = load_config()
         if is_tier3_configured(cfg):
+            # Save T2-only composite before T3 corrections
+            result.compute_composite(max_tier=2)
+            t2_composite = result.composite
+
             result.llm = extract_llm(session, result.semantic, cfg)
-            # Apply corrected hypothesis avg if Tier 3 ran
+            result.llm.t2_composite = t2_composite
+
+            # LLM subtext analysis (uses same T3 provider)
+            if result.semantic.per_message:
+                result.subtext = extract_subtext_llm(
+                    session, result.semantic.per_message, cfg)
+
+            # Apply corrected signals if Tier 3 ran
             if result.llm.ran and result.llm.messages_reclassified > 0:
                 result.semantic.hypothesis_level_avg = result.llm.hypothesis_level_avg
+                result.semantic.ownership_score = result.llm.ownership_score
+                result.semantic.critical_engagement = result.llm.critical_engagement
+                result.semantic.self_reliance = result.llm.self_reliance
+                result.semantic.metacognition_score = result.llm.metacognition_score
+                result.semantic.delegation_penalty = result.llm.delegation_penalty
 
     result.compute_composite(max_tier=max_tier)
     save_cached(cache_path, mtime, max_tier, result)

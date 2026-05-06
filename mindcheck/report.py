@@ -8,6 +8,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich import box
 from mindcheck.scorer import SessionScore
+from mindcheck.trajectory import (
+    TrajectoryPoint, TrendAnalysis, compute_trajectory, analyze_trend, sparkline,
+)
 
 console = Console()
 
@@ -170,6 +173,60 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
                 f"| {label} | {d['count']} | {hyp:.1f}/4 | {deleg*100:.0f}% | {flag} |"
             )
 
+    # ── Trajectory section (when sessions span multiple periods) ────────────
+    traj_points = compute_trajectory(results)
+    if len(traj_points) >= 2:
+        traj_trend = analyze_trend(traj_points)
+        period_name = "month" if "-W" not in traj_points[0].period_label else "week"
+
+        dir_arrows = {"improving": "↑", "declining": "↓", "stable": "→"}
+        dir_arrow = dir_arrows.get(traj_trend.direction, "")
+
+        lines += ["", "---", "",
+                  f"## Engagement trajectory {dir_arrow}", ""]
+
+        lines.append(f"*{traj_trend.summary}*")
+        lines.append("")
+
+        lines.append(
+            "| Period | Sessions | Score | Hypothesis | Ownership | Critical |"
+        )
+        lines.append("|---|---|---|---|---|---|")
+
+        for p in traj_points:
+            lines.append(
+                f"| {p.period_label} | {p.session_count} "
+                f"| {p.avg_composite:.0f} | {p.avg_hypothesis:.1f}/4 "
+                f"| {p.avg_ownership*100:.0f}% | {p.avg_critical*100:.0f}% |"
+            )
+
+        if traj_trend.best_period and traj_trend.worst_period:
+            lines += [
+                "",
+                f"**Best period:** {traj_trend.best_period.period_label} "
+                f"({traj_trend.best_period.avg_composite:.0f}/100)  ",
+                f"**Worst period:** {traj_trend.worst_period.period_label} "
+                f"({traj_trend.worst_period.avg_composite:.0f}/100)",
+            ]
+
+    # ── Subtext / authenticity section ──────────────────────────────────────
+    sessions_with_subtext = [r for r in results
+                             if (r.subtext.contradictions_found > 0 or
+                                 r.subtext.performative_count > 0 or
+                                 r.subtext.passive_acceptance_streak >= 3)]
+    if sessions_with_subtext:
+        avg_auth = sum(r.subtext.authenticity_score for r in results) / len(results)
+        total_contradictions = sum(r.subtext.contradictions_found for r in results)
+        total_performative = sum(r.subtext.performative_count for r in results)
+
+        lines += ["", "---", "", "## Subtext analysis", ""]
+        lines.append(f"**Average authenticity: {avg_auth*100:.0f}%**  ")
+        lines.append(f"Sessions with subtext patterns: {len(sessions_with_subtext)}/{len(results)}")
+        if total_contradictions > 0:
+            lines.append(f"Say-then-contradict patterns: {total_contradictions}  ")
+        if total_performative > 0:
+            lines.append(f"Performative messages: {total_performative}  ")
+
     lines += [
         "",
         "---",
@@ -211,22 +268,22 @@ def print_session_score(result: SessionScore):
     table.add_column("Notes", style="dim")
 
     table.add_row("Session type", f"{result.session_type}", "auto-detected")
-    table.add_row("Composite score (T2)", f"{result.composite:.0f}/100", "semantic signals")
+
+    # Show T2 vs T3 scores when Tier 3 ran
+    llm = result.llm
+    if llm.ran and llm.messages_reclassified > 0:
+        delta = result.composite - llm.t2_composite
+        delta_str = f"+{delta:.0f}" if delta >= 0 else f"{delta:.0f}"
+        table.add_row("Composite score (T2)", f"{llm.t2_composite:.0f}/100", "before LLM refinement")
+        table.add_row("Composite score (T3)", f"{result.composite:.0f}/100",
+                      f"after refinement ({delta_str} pts, {llm.messages_reclassified} msg reclassified)")
+    else:
+        table.add_row("Composite score (T2)", f"{result.composite:.0f}/100", "semantic signals")
     table.add_row("Structural score (T1)", f"{result.tier1_score:.0f}/100", "structure only")
 
-    # Show Tier 3 status if it ran
-    llm = result.llm
-    if llm.ran:
-        t3_note = (
-            f"reclassified {llm.messages_reclassified} message(s) → "
-            f"hypothesis now {llm.hypothesis_level_avg:.2f}/4"
-            if llm.messages_reclassified > 0
-            else "ran — all messages already confident"
-        )
-        table.add_row("Tier 3 (LLM)", "[green]active[/green]", t3_note)
-    elif result.session.tool:  # only show if a session was actually scored
-        table.add_row("Tier 3 (LLM)", "[dim]not triggered[/dim]",
-                      "all messages were high-confidence")
+    if llm.ran and llm.messages_reclassified == 0:
+        table.add_row("Tier 3 (LLM)", "[dim]ran[/dim]",
+                      "all messages already high-confidence")
     table.add_row("Hypothesis level",    f"{sem.hypothesis_level_avg:.1f}/4",
                   "0=no attempt, 4=tested hypothesis")
     table.add_row("Ownership",            f"{sem.ownership_score*100:.0f}%",
@@ -249,6 +306,46 @@ def print_session_score(result: SessionScore):
     table.add_row("Turn count",          str(st.turn_count), "exchanges in session")
     table.add_row("Message ratio",       f"{st.message_ratio:.2f}",
                   "your words / AI words (higher = more engaged)")
+
+    # Subtext / authenticity signals
+    sub = result.subtext
+    if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.llm_ran:
+        table.add_row("", "", "")  # spacer
+        auth_pct = sub.authenticity_score * 100
+        if auth_pct >= 80:
+            auth_style = "green"
+        elif auth_pct >= 60:
+            auth_style = "yellow"
+        else:
+            auth_style = "red"
+        table.add_row("Authenticity",
+                      f"[{auth_style}]{auth_pct:.0f}%[/{auth_style}]",
+                      "how genuine the engagement appears")
+        if sub.say_then_contradict > 0:
+            table.add_row("  Say-then-contradict",
+                          str(sub.say_then_contradict),
+                          "claimed engagement, then delegated")
+        if sub.empty_self_reliance > 0:
+            table.add_row("  Empty self-reliance",
+                          str(sub.empty_self_reliance),
+                          "claimed effort without specifics")
+        if sub.hypothesis_without_followup > 0:
+            table.add_row("  Dropped hypotheses",
+                          str(sub.hypothesis_without_followup),
+                          "formed hypothesis, never tested it")
+        if sub.passive_acceptance_streak >= 3:
+            table.add_row("  Passive streak",
+                          f"{sub.passive_acceptance_streak} msgs",
+                          "consecutive uncritical acceptance")
+        if sub.llm_ran:
+            if sub.performative_hypothesis > 0:
+                table.add_row("  Performative hypothesis",
+                              str(sub.performative_hypothesis),
+                              "LLM-detected fake hypothesis")
+            if sub.fake_curiosity > 0:
+                table.add_row("  Fake curiosity",
+                              str(sub.fake_curiosity),
+                              "LLM-detected surface-level questions")
 
     console.print(table)
 
@@ -285,3 +382,117 @@ def print_session_score(result: SessionScore):
         "  [dim]Hypothesis guide: 0 = dump the problem | 1 = describe symptom | "
         "2 = locate cause | 3 = form hypothesis | 4 = tested a hypothesis[/dim]\n"
     )
+
+
+def print_trajectory(points: list[TrajectoryPoint], trend: TrendAnalysis,
+                     period_name: str = "week"):
+    """Print trajectory analysis to the terminal with rich formatting."""
+    if not points:
+        console.print("[yellow]No trajectory data available.[/yellow]")
+        return
+
+    # Direction label with colour
+    dir_colours = {
+        "improving": "green", "declining": "red", "stable": "yellow",
+        "insufficient_data": "dim",
+    }
+    dir_colour = dir_colours.get(trend.direction, "white")
+    dir_arrows = {
+        "improving": "↑", "declining": "↓", "stable": "→",
+        "insufficient_data": "—",
+    }
+    dir_arrow = dir_arrows.get(trend.direction, "")
+
+    console.print(Panel(
+        f"[bold]Cognitive Engagement Trajectory[/bold]  "
+        f"[{dir_colour}]{dir_arrow} {trend.direction.capitalize()}[/{dir_colour}]"
+    ))
+
+    # Main trajectory table
+    table = Table(box=box.SIMPLE, show_header=True, padding=(0, 1))
+    table.add_column("Period",     style="cyan",  min_width=10)
+    table.add_column("Sessions",   style="white", justify="right", min_width=8)
+    table.add_column("Score",      style="white", justify="right", min_width=6)
+    table.add_column("Hypothesis", style="white", justify="right", min_width=10)
+    table.add_column("Ownership",  style="white", justify="right", min_width=9)
+    table.add_column("Critical",   style="white", justify="right", min_width=8)
+    table.add_column("Self-rel.",  style="white", justify="right", min_width=8)
+    table.add_column("Meta.",      style="white", justify="right", min_width=6)
+    table.add_column("",           style="dim",   min_width=3)
+
+    prev_score = None
+    for p in points:
+        # Trend arrow vs previous period
+        if prev_score is not None:
+            delta = p.avg_composite - prev_score
+            if delta > 2:
+                arrow = "[green]↑[/green]"
+            elif delta < -2:
+                arrow = "[red]↓[/red]"
+            else:
+                arrow = "[dim]→[/dim]"
+        else:
+            arrow = ""
+        prev_score = p.avg_composite
+
+        # Colour the score
+        if p.avg_composite >= 70:
+            score_str = f"[green]{p.avg_composite:.0f}[/green]"
+        elif p.avg_composite >= 50:
+            score_str = f"[yellow]{p.avg_composite:.0f}[/yellow]"
+        elif p.avg_composite >= 30:
+            score_str = f"[yellow]{p.avg_composite:.0f}[/yellow]"
+        else:
+            score_str = f"[red]{p.avg_composite:.0f}[/red]"
+
+        table.add_row(
+            p.period_label,
+            str(p.session_count),
+            score_str,
+            f"{p.avg_hypothesis:.1f}/4",
+            f"{p.avg_ownership*100:.0f}%",
+            f"{p.avg_critical*100:.0f}%",
+            f"{p.avg_self_reliance*100:.0f}%",
+            f"{p.avg_metacognition*100:.0f}%",
+            arrow,
+        )
+
+    console.print(table)
+
+    # Sparkline
+    scores = [p.avg_composite for p in points]
+    spark = sparkline(scores)
+    console.print(f"  Score trend: [bold]{spark}[/bold]  ", end="")
+    if trend.direction == "improving":
+        console.print(f"[green]+{trend.composite_slope:.1f} pts/{period_name}[/green]")
+    elif trend.direction == "declining":
+        console.print(f"[red]{trend.composite_slope:.1f} pts/{period_name}[/red]")
+    else:
+        console.print(f"[dim]stable[/dim]")
+
+    # Per-signal trend highlights
+    improving = [s for s, sl in trend.signal_trends.items()
+                 if sl > 1.0 and s != "delegation"]
+    declining = [s for s, sl in trend.signal_trends.items()
+                 if sl < -1.0 and s != "delegation"]
+    deleg_sl = trend.signal_trends.get("delegation", 0)
+    if deleg_sl > 1.0:
+        declining.append("delegation")
+    elif deleg_sl < -1.0:
+        improving.append("delegation")
+
+    if improving:
+        console.print(f"  [green]Improving:[/green] {', '.join(improving)}")
+    if declining:
+        console.print(f"  [red]Watch:[/red] {', '.join(declining)}")
+
+    # Best / worst
+    if trend.best_period and trend.worst_period and trend.period_count >= 2:
+        console.print(
+            f"  Best: [green]{trend.best_period.period_label}[/green] "
+            f"({trend.best_period.avg_composite:.0f})  |  "
+            f"Worst: [red]{trend.worst_period.period_label}[/red] "
+            f"({trend.worst_period.avg_composite:.0f})"
+        )
+
+    console.print(f"\n  [dim]{trend.summary}[/dim]\n")

@@ -19,9 +19,10 @@ from mindcheck.parser import Session, Message
 from mindcheck.signals.structural import StructuralSignals
 from mindcheck.signals.semantic import SemanticSignals
 from mindcheck.signals.llm import LLMSignals
+from mindcheck.signals.subtext import SubtextSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 9  # bumped: delegation prototype improvements (v9)
+CACHE_VERSION = 10  # bumped: subtext / authenticity signals (v10)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -161,6 +162,19 @@ def _serialize(score) -> str:
             "delegation_penalty":   sem.delegation_penalty,
             "task_breakdown":       sem.task_breakdown,
         },
+        # Subtext signals
+        "subtext": {
+            "authenticity_score": score.subtext.authenticity_score,
+            "contradictions_found": score.subtext.contradictions_found,
+            "performative_count": score.subtext.performative_count,
+            "say_then_contradict": score.subtext.say_then_contradict,
+            "empty_self_reliance": score.subtext.empty_self_reliance,
+            "passive_acceptance_streak": score.subtext.passive_acceptance_streak,
+            "hypothesis_without_followup": score.subtext.hypothesis_without_followup,
+            "performative_hypothesis": score.subtext.performative_hypothesis,
+            "fake_curiosity": score.subtext.fake_curiosity,
+            "llm_ran": score.subtext.llm_ran,
+        },
         "composite": score.composite,
         "session_type": score.session_type,
     })
@@ -227,9 +241,25 @@ def _deserialize(data_json: str):
         task_breakdown       = sem_d.get("task_breakdown", {}),
     )
 
+    # Subtext signals
+    sub_d = d.get("subtext", {})
+    subtext = SubtextSignals(
+        authenticity_score          = sub_d.get("authenticity_score", 1.0),
+        contradictions_found        = sub_d.get("contradictions_found", 0),
+        performative_count          = sub_d.get("performative_count", 0),
+        say_then_contradict         = sub_d.get("say_then_contradict", 0),
+        empty_self_reliance         = sub_d.get("empty_self_reliance", 0),
+        passive_acceptance_streak   = sub_d.get("passive_acceptance_streak", 0),
+        hypothesis_without_followup = sub_d.get("hypothesis_without_followup", 0),
+        performative_hypothesis     = sub_d.get("performative_hypothesis", 0),
+        fake_curiosity              = sub_d.get("fake_curiosity", 0),
+        llm_ran                     = sub_d.get("llm_ran", False),
+    )
+
     result = SessionScore(session=session)
     result.structural    = structural
     result.semantic      = semantic
+    result.subtext       = subtext
     result.composite     = d["composite"]
     result.session_type  = d.get("session_type", "coding")
     return result
