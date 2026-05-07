@@ -399,3 +399,98 @@ def cache(clear: bool):
     console.print(f"  Sessions : {stats['total']} cached")
     for tier, count in sorted(stats["by_tier"].items()):
         console.print(f"    Tier {tier} : {count} session(s)")
+
+
+@main.group()
+def validate():
+    """Validate subtext detection accuracy against ground truth."""
+    pass
+
+
+@validate.command("sample")
+@click.option("--window", default="90d", help="Time window e.g. 7d, 30d, 90d")
+@click.option("--max-per-session", default=5, type=int,
+              help="Max flags to sample per session")
+@click.option("--max-total", default=50, type=int,
+              help="Max total new entries to add")
+@click.option("--tool", multiple=True, help="Filter by tool (claude, codex, etc.)")
+@click.option("--skip-archived", is_flag=True, default=True)
+def validate_sample(window, max_per_session, max_total, tool, skip_archived):
+    """Sample flagged message pairs from real sessions into ground truth."""
+    from mindcheck.validate import sample as do_sample, load_ground_truth
+
+    console.print(f"Scanning sessions from the last [cyan]{window}[/cyan]...")
+    tools_list = list(tool) if tool else None
+    new_count = do_sample(
+        window=window,
+        max_per_session=max_per_session,
+        max_total=max_total,
+        skip_archived=skip_archived,
+        tools=tools_list,
+    )
+
+    existing = load_ground_truth()
+    total = len(existing)
+    unlabeled = sum(1 for e in existing if e["label"] == "UNLABELED")
+    console.print(f"[green]Added {new_count} new entries.[/green]")
+    console.print(f"Ground truth: {total} total, {unlabeled} unlabeled")
+    console.print("[dim]Next: mindcheck validate label[/dim]")
+
+
+@validate.command("label")
+@click.option("--batch", default=10, type=int,
+              help="Number of entries to label per session")
+def validate_label(batch):
+    """Interactively label flagged pairs as CORRECT or FALSE_POSITIVE."""
+    from mindcheck.validate import label_interactive
+    label_interactive(batch_size=batch)
+
+
+@validate.command("measure")
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def validate_measure(as_json):
+    """Measure subtext detection accuracy against ground truth."""
+    import json as json_mod
+    from mindcheck.validate import measure as do_measure
+
+    result = do_measure()
+    if result is None:
+        console.print("[yellow]No labeled data found. Run `mindcheck validate label` first.[/yellow]")
+        return
+
+    if as_json:
+        click.echo(json_mod.dumps({
+            "total_labeled": result.total_labeled,
+            "accuracy": round(result.accuracy, 3),
+            "fp_rate": round(result.fp_rate, 3),
+            "true_positives": result.true_positives,
+            "false_positives": result.false_positives,
+            "fixed_false_positives": result.fixed_false_positives,
+            "per_flag_type": result.per_flag_type,
+        }, indent=2))
+        return
+
+    console.print()
+    console.print(f"{'='*60}")
+    console.print(f"  Subtext Detection Accuracy Report")
+    console.print(f"{'='*60}")
+    console.print(f"  Labeled entries:     {result.total_labeled}")
+    console.print(f"    CORRECT:           {result.correct_labels}")
+    console.print(f"    FALSE_POSITIVE:    {result.false_positive_labels}")
+    console.print()
+    console.print(f"  True positives:      {result.true_positives}")
+    console.print(f"  False positives:     {result.false_positives}")
+    console.print(f"  Fixed (no longer):   {result.fixed_false_positives}")
+    acc_pct = f"{result.accuracy:.1%}"
+    fp_pct = f"{result.fp_rate:.1%}"
+    console.print(f"  Accuracy:            {acc_pct}")
+    console.print(f"  FP rate:             {fp_pct}")
+    console.print()
+    console.print(f"  {'Flag Type':<30} {'TP':>4} {'FP':>4} {'Fixed':>6} {'Total':>6}")
+    console.print(f"  {'-'*52}")
+    for ft, counts in sorted(result.per_flag_type.items()):
+        console.print(
+            f"  {ft:<30} {counts['tp']:>4} {counts['fp']:>4} "
+            f"{counts['fixed']:>6} {counts['total']:>6}"
+        )
+    console.print(f"{'='*60}")

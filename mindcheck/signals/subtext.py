@@ -22,6 +22,8 @@ from typing import Optional
 
 from mindcheck.parser import Session
 
+SUBTEXT_DETECTION_VERSION = 1
+
 
 @dataclass
 class SubtextSignals:
@@ -88,8 +90,13 @@ def extract_subtext_local(
                     msg_flags.append("say_then_contradict")
 
             # "I'll do it myself" → "write it for me"
+            # Only flag if the delegation is a low-effort handoff (hyp <= 1).
+            # If the delegation itself contains detailed thinking (hyp >= 2),
+            # the user is giving specific instructions — that's continuation,
+            # not contradiction.
             if c.get("is_self_reliant") and not c.get("is_delegation"):
-                if next_c.get("is_delegation"):
+                if (next_c.get("is_delegation") and
+                        next_c.get("hypothesis_level", 0) <= 1):
                     sig.say_then_contradict += 1
                     msg_flags.append("say_then_contradict")
 
@@ -235,12 +242,24 @@ def extract_subtext_llm(
 
     user_msgs = session.user_messages
 
+    # Build set of flagged message indices from local detection —
+    # only send windows containing at least one flagged message to the LLM.
+    flagged_indices = set()
+    for f in sig.flags:
+        if f.get("flags"):
+            flagged_indices.add(f["index"])
+
     # Build message windows (groups of up to 5 consecutive messages)
     window_size = 5
     all_intents = []
 
     for start in range(0, len(user_msgs), window_size):
         end = min(start + window_size, len(user_msgs))
+
+        # Skip windows with no locally-flagged messages
+        if not any(i in flagged_indices for i in range(start, end)):
+            continue
+
         window_msgs = user_msgs[start:end]
 
         # Format messages for the prompt
