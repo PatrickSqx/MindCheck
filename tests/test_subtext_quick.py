@@ -30,7 +30,8 @@ def test_local_patterns():
     sig = extract_subtext_local(session, classifications)
 
     print(f"authenticity_score:       {sig.authenticity_score:.2f}")
-    print(f"say_then_contradict:      {sig.say_then_contradict}")
+    print(f"say_then_contradict_candidates: {sig.say_then_contradict_candidates}")
+    print(f"say_then_contradict (confirmed): {sig.say_then_contradict}")
     print(f"empty_self_reliance:      {sig.empty_self_reliance}")
     print(f"passive_acceptance_streak: {sig.passive_acceptance_streak}")
     print(f"hypothesis_without_followup: {sig.hypothesis_without_followup}")
@@ -38,7 +39,9 @@ def test_local_patterns():
     print(f"performative_count:       {sig.performative_count}")
 
     # Assertions
-    assert sig.say_then_contradict >= 1, f"Expected say-then-contradict, got {sig.say_then_contradict}"
+    # say_then_contradict is now candidates-only at Tier 2 (needs LLM to confirm)
+    assert sig.say_then_contradict_candidates >= 1, f"Expected STC candidates, got {sig.say_then_contradict_candidates}"
+    assert sig.say_then_contradict == 0, f"Confirmed STC should be 0 at Tier 2, got {sig.say_then_contradict}"
     assert sig.empty_self_reliance >= 1, f"Expected empty self-reliance, got {sig.empty_self_reliance}"
     assert sig.passive_acceptance_streak >= 3, f"Expected passive streak >= 3, got {sig.passive_acceptance_streak}"
     assert sig.authenticity_score < 1.0, f"Expected penalised authenticity, got {sig.authenticity_score}"
@@ -112,6 +115,7 @@ def test_cache_roundtrip():
     from mindcheck.scorer import SessionScore
     result = SessionScore(session=session)
     result.subtext.authenticity_score = 0.75
+    result.subtext.say_then_contradict_candidates = 5
     result.subtext.say_then_contradict = 2
     result.subtext.empty_self_reliance = 1
     result.subtext.passive_acceptance_streak = 4
@@ -121,12 +125,14 @@ def test_cache_roundtrip():
     restored = _deserialize(serialized)
 
     assert restored.subtext.authenticity_score == 0.75
+    assert restored.subtext.say_then_contradict_candidates == 5
     assert restored.subtext.say_then_contradict == 2
     assert restored.subtext.empty_self_reliance == 1
     assert restored.subtext.passive_acceptance_streak == 4
 
     print("\nCache roundtrip test:")
     print(f"authenticity survived: {restored.subtext.authenticity_score}")
+    print(f"say_then_contradict_candidates survived: {restored.subtext.say_then_contradict_candidates}")
     print(f"say_then_contradict survived: {restored.subtext.say_then_contradict}")
     print("All assertions passed!")
 

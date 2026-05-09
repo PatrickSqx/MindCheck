@@ -53,11 +53,12 @@ class SessionScore:
         }
         # Include subtext analysis when patterns were found
         sub = self.subtext
-        if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.llm_ran:
+        if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.say_then_contradict_candidates > 0 or sub.llm_ran:
             d["subtext"] = {
                 "authenticity_score": round(sub.authenticity_score, 2),
                 "contradictions_found": sub.contradictions_found,
                 "performative_count": sub.performative_count,
+                "say_then_contradict_candidates": sub.say_then_contradict_candidates,
                 "say_then_contradict": sub.say_then_contradict,
                 "empty_self_reliance": sub.empty_self_reliance,
                 "passive_acceptance_streak": sub.passive_acceptance_streak,

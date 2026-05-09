@@ -213,6 +213,7 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
     sessions_with_subtext = [r for r in results
                              if (r.subtext.contradictions_found > 0 or
                                  r.subtext.performative_count > 0 or
+                                 r.subtext.say_then_contradict_candidates > 0 or
                                  r.subtext.passive_acceptance_streak >= 3)]
     if sessions_with_subtext:
         avg_auth = sum(r.subtext.authenticity_score for r in results) / len(results)
@@ -222,8 +223,11 @@ def generate_report(results: list[SessionScore], period: str = "") -> str:
         lines += ["", "---", "", "## Subtext analysis", ""]
         lines.append(f"**Average authenticity: {avg_auth*100:.0f}%**  ")
         lines.append(f"Sessions with subtext patterns: {len(sessions_with_subtext)}/{len(results)}")
+        total_stc_candidates = sum(r.subtext.say_then_contradict_candidates for r in results)
         if total_contradictions > 0:
-            lines.append(f"Say-then-contradict patterns: {total_contradictions}  ")
+            lines.append(f"Say-then-contradict (confirmed): {total_contradictions}  ")
+        elif total_stc_candidates > 0:
+            lines.append(f"Say-then-contradict candidates: {total_stc_candidates} (needs Tier 3)  ")
         if total_performative > 0:
             lines.append(f"Performative messages: {total_performative}  ")
 
@@ -309,7 +313,7 @@ def print_session_score(result: SessionScore):
 
     # Subtext / authenticity signals
     sub = result.subtext
-    if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.llm_ran:
+    if sub.contradictions_found > 0 or sub.performative_count > 0 or sub.passive_acceptance_streak >= 3 or sub.say_then_contradict_candidates > 0 or sub.llm_ran:
         table.add_row("", "", "")  # spacer
         auth_pct = sub.authenticity_score * 100
         if auth_pct >= 80:
@@ -324,7 +328,11 @@ def print_session_score(result: SessionScore):
         if sub.say_then_contradict > 0:
             table.add_row("  Say-then-contradict",
                           str(sub.say_then_contradict),
-                          "claimed engagement, then delegated")
+                          "LLM-confirmed contradictions")
+        elif sub.say_then_contradict_candidates > 0:
+            table.add_row("  STC candidates",
+                          str(sub.say_then_contradict_candidates),
+                          "[dim]needs Tier 3 to confirm[/dim]")
         if sub.empty_self_reliance > 0:
             table.add_row("  Empty self-reliance",
                           str(sub.empty_self_reliance),

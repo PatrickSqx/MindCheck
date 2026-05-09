@@ -22,23 +22,28 @@ from typing import Optional
 
 from mindcheck.parser import Session
 
-SUBTEXT_DETECTION_VERSION = 1
+SUBTEXT_DETECTION_VERSION = 2  # v2: say-then-contradict moved to Tier 3 confirmation
 
 
 @dataclass
 class SubtextSignals:
     # Overall
     authenticity_score: float = 1.0       # 0–1, how genuine the engagement appears
-    contradictions_found: int = 0         # number of say-then-contradict patterns
+    contradictions_found: int = 0         # number of confirmed say-then-contradict
     performative_count: int = 0           # messages flagged as performative
 
-    # Specific patterns detected
-    say_then_contradict: int = 0          # "I want to understand" → "just give me code"
+    # Tier 2 candidates (flagged locally, NOT scored — need LLM confirmation)
+    say_then_contradict_candidates: int = 0  # candidate pairs found by Tier 2
+    say_then_contradict: int = 0          # LLM-confirmed contradictions (Tier 3 only)
+
+    # Tier 2 reliable patterns (scored directly)
     empty_self_reliance: int = 0          # claims effort but gives no specifics
     passive_acceptance_streak: int = 0    # consecutive "looks good" / "makes sense"
     hypothesis_without_followup: int = 0  # forms hypothesis, never references it again
-    performative_hypothesis: int = 0      # LLM-detected fake hypothesis (Tier 3 only)
-    fake_curiosity: int = 0              # LLM-detected fake curiosity (Tier 3 only)
+
+    # LLM-detected patterns (Tier 3 only)
+    performative_hypothesis: int = 0      # LLM-detected fake hypothesis
+    fake_curiosity: int = 0              # LLM-detected fake curiosity
 
     # Per-message flags (parallel to semantic.per_message)
     flags: list[dict] = field(default_factory=list)
@@ -84,21 +89,20 @@ def extract_subtext_local(
             next_c = classifications[i + 1]
 
             # "I want to understand" → "just do it"
+            # Flagged as CANDIDATE only — Tier 2 can't distinguish pasted
+            # content from genuine thought, or follow-up questions from
+            # delegation.  LLM confirmation (Tier 3) required before scoring.
             if (c.get("is_metacognitive") or c.get("hypothesis_level", 0) >= 3):
                 if next_c.get("is_delegation") and next_c.get("hypothesis_level", 0) <= 1:
-                    sig.say_then_contradict += 1
-                    msg_flags.append("say_then_contradict")
+                    sig.say_then_contradict_candidates += 1
+                    msg_flags.append("say_then_contradict_candidate")
 
             # "I'll do it myself" → "write it for me"
-            # Only flag if the delegation is a low-effort handoff (hyp <= 1).
-            # If the delegation itself contains detailed thinking (hyp >= 2),
-            # the user is giving specific instructions — that's continuation,
-            # not contradiction.
             if c.get("is_self_reliant") and not c.get("is_delegation"):
                 if (next_c.get("is_delegation") and
                         next_c.get("hypothesis_level", 0) <= 1):
-                    sig.say_then_contradict += 1
-                    msg_flags.append("say_then_contradict")
+                    sig.say_then_contradict_candidates += 1
+                    msg_flags.append("say_then_contradict_candidate")
 
         # ── 2. Empty self-reliance ───────────────────────────────────────
         # Claims prior effort but message is too short to contain specifics
@@ -151,6 +155,8 @@ def extract_subtext_local(
     sig.passive_acceptance_streak = max_streak
 
     # ── Compute totals ───────────────────────────────────────────────────
+    # say_then_contradict stays 0 at Tier 2 — only set when LLM confirms.
+    # contradictions_found counts only confirmed contradictions.
     sig.contradictions_found = sig.say_then_contradict + sig.empty_self_reliance
     sig.performative_count = (sig.say_then_contradict +
                               sig.empty_self_reliance +
@@ -160,13 +166,13 @@ def extract_subtext_local(
     # ── Authenticity score ───────────────────────────────────────────────
     # Start at 1.0 (fully authentic), penalise based on *rate* of patterns
     # found (not absolute counts), so long sessions aren't unfairly penalised.
+    #
+    # NOTE: say-then-contradict is NOT penalised here — Tier 2 can't
+    # reliably distinguish pasted content / follow-up questions from real
+    # contradictions (~100% false positive rate in testing).  The penalty
+    # is applied in extract_subtext_llm() after LLM confirmation.
     n = max(len(classifications), 1)
     penalty = 0.0
-
-    # Rate-based: what fraction of messages showed each pattern?
-    # Then scale by a severity weight and cap each component.
-    contradiction_rate = sig.say_then_contradict / n
-    penalty += min(contradiction_rate * 2.0, 0.30)   # up to -30% for contradictions
 
     empty_rate = sig.empty_self_reliance / n
     penalty += min(empty_rate * 1.5, 0.15)            # up to -15% for empty claims
@@ -209,6 +215,38 @@ For EACH message, respond with ONLY valid JSON — a list of objects:
 ]"""
 
 
+_CONFIRM_STC_PROMPT = """\
+A local detector flagged the following message pair as a potential
+"say-then-contradict" pattern, where the user claims engagement then
+immediately contradicts it by delegating.
+
+However, the local detector has a high false-positive rate — it cannot
+distinguish between:
+- Pasted/copied content vs. the user's own thinking
+- Follow-up questions vs. actual delegation
+- Giving detailed instructions vs. mindless handoff
+- Natural conversation flow vs. genuine contradiction
+
+Message A (flagged as "engagement"):
+{msg_a}
+
+Message B (flagged as "delegation"):
+{msg_b}
+
+Is this a GENUINE say-then-contradict? Answer with ONLY valid JSON:
+{{"is_contradiction": <true/false>, "reason": "<brief explanation>"}}
+
+Rules:
+- If Message A is pasted content (code, error logs, assignment text, data),
+  it is NOT the user's own thinking — answer false.
+- If Message B is a follow-up question (ends with ? or 吗/呢/吧), it is
+  likely continued engagement, not delegation — answer false.
+- If Message B contains specific instructions or observations, it is
+  continuation, not contradiction — answer false.
+- Only answer true if the user genuinely showed their OWN thinking in A,
+  then dropped it and handed off mindlessly in B."""
+
+
 def extract_subtext_llm(
     session: Session,
     classifications: list[dict],
@@ -216,8 +254,15 @@ def extract_subtext_llm(
 ) -> SubtextSignals:
     """Run LLM-based subtext analysis on message sequences.
 
-    Sends groups of 3-5 consecutive user messages to the LLM to infer
-    illocutionary intent. Only called when Tier 3 is configured.
+    Two-phase approach:
+    1. Confirm say-then-contradict candidates — the local detector flags
+       potential pairs but has ~100% false-positive rate on real data
+       (can't distinguish pasted content from genuine thought).  The LLM
+       reads each candidate pair and confirms or rejects it.
+    2. Performative intent scan — sends message windows to the LLM to
+       detect performative hypothesis, fake curiosity, etc.
+
+    Only confirmed contradictions affect the authenticity score.
 
     Args:
         session: The parsed session.
@@ -225,7 +270,7 @@ def extract_subtext_llm(
         cfg: MindCheck config dict (must have tier3_provider set).
 
     Returns:
-        SubtextSignals with LLM intent analysis.
+        SubtextSignals with LLM-confirmed contradictions and intent analysis.
     """
     import json
 
@@ -242,14 +287,50 @@ def extract_subtext_llm(
 
     user_msgs = session.user_messages
 
-    # Build set of flagged message indices from local detection —
-    # only send windows containing at least one flagged message to the LLM.
+    # ── Phase 1: Confirm say-then-contradict candidates ──────────────
+    stc_candidate_indices = []
+    for f in sig.flags:
+        if "say_then_contradict_candidate" in f.get("flags", []):
+            stc_candidate_indices.append(f["index"])
+
+    confirmed_stc = 0
+    for idx in stc_candidate_indices:
+        if idx >= len(user_msgs) or idx + 1 >= len(user_msgs):
+            continue
+        msg_a = user_msgs[idx].content[:400]
+        msg_b = user_msgs[idx + 1].content[:400]
+
+        prompt = _CONFIRM_STC_PROMPT.format(msg_a=msg_a, msg_b=msg_b)
+        try:
+            result = _call_provider(prompt, provider, key, model,
+                                    ollama_url, ollama_model)
+            if isinstance(result, dict) and result.get("is_contradiction"):
+                confirmed_stc += 1
+                # Update the flag from candidate to confirmed
+                for f in sig.flags:
+                    if f["index"] == idx and "say_then_contradict_candidate" in f["flags"]:
+                        f["flags"].append("say_then_contradict")
+                        break
+        except Exception:
+            continue
+
+    sig.say_then_contradict = confirmed_stc
+    sig.contradictions_found = confirmed_stc + sig.empty_self_reliance
+
+    # Apply say-then-contradict penalty only for LLM-confirmed cases
+    if confirmed_stc > 0:
+        n = max(len(classifications), 1)
+        stc_rate = confirmed_stc / n
+        stc_penalty = min(stc_rate * 2.0, 0.30)
+        sig.authenticity_score = max(0.0, sig.authenticity_score - stc_penalty)
+
+    # ── Phase 2: Performative intent scan ────────────────────────────
+    # Build set of flagged message indices — only send windows with flags
     flagged_indices = set()
     for f in sig.flags:
         if f.get("flags"):
             flagged_indices.add(f["index"])
 
-    # Build message windows (groups of up to 5 consecutive messages)
     window_size = 5
     all_intents = []
 
@@ -262,7 +343,6 @@ def extract_subtext_llm(
 
         window_msgs = user_msgs[start:end]
 
-        # Format messages for the prompt
         msg_text = "\n".join(
             f"[{i}] {m.content[:300]}"
             for i, m in enumerate(window_msgs)
@@ -291,13 +371,16 @@ def extract_subtext_llm(
     sig.llm_ran = True
     sig.llm_intents = all_intents
 
-    # Adjust authenticity score with LLM findings
+    # Adjust authenticity score with LLM performative findings
     if all_intents:
         n_performative = sum(1 for i in all_intents if i.get("is_performative"))
         n_total = len(all_intents)
         if n_total > 0:
-            llm_penalty = (n_performative / n_total) * 0.30  # up to 30% penalty
+            llm_penalty = (n_performative / n_total) * 0.30
             sig.authenticity_score = max(0.0, sig.authenticity_score - llm_penalty)
+
+    # Recompute totals after LLM confirmation
+    sig.performative_count += confirmed_stc
 
     return sig
 

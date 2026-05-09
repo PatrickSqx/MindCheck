@@ -22,7 +22,7 @@ from mindcheck.signals.llm import LLMSignals
 from mindcheck.signals.subtext import SubtextSignals
 
 # Bump this when the stored schema changes — forces a full re-analysis.
-CACHE_VERSION = 10  # bumped: subtext / authenticity signals (v10)
+CACHE_VERSION = 11  # bumped: say-then-contradict split (candidates vs confirmed)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -168,6 +168,7 @@ def _serialize(score) -> str:
             "contradictions_found": score.subtext.contradictions_found,
             "performative_count": score.subtext.performative_count,
             "say_then_contradict": score.subtext.say_then_contradict,
+            "say_then_contradict_candidates": score.subtext.say_then_contradict_candidates,
             "empty_self_reliance": score.subtext.empty_self_reliance,
             "passive_acceptance_streak": score.subtext.passive_acceptance_streak,
             "hypothesis_without_followup": score.subtext.hypothesis_without_followup,
@@ -248,6 +249,7 @@ def _deserialize(data_json: str):
         contradictions_found        = sub_d.get("contradictions_found", 0),
         performative_count          = sub_d.get("performative_count", 0),
         say_then_contradict         = sub_d.get("say_then_contradict", 0),
+        say_then_contradict_candidates = sub_d.get("say_then_contradict_candidates", 0),
         empty_self_reliance         = sub_d.get("empty_self_reliance", 0),
         passive_acceptance_streak   = sub_d.get("passive_acceptance_streak", 0),
         hypothesis_without_followup = sub_d.get("hypothesis_without_followup", 0),

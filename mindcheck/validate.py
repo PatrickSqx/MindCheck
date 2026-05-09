@@ -111,7 +111,7 @@ def sample(
                 next_msg_text = None
                 next_cls = None
 
-                if flag_type == "say_then_contradict" and idx + 1 < len(user_msgs):
+                if flag_type in ("say_then_contradict", "say_then_contradict_candidate") and idx + 1 < len(user_msgs):
                     next_msg_text = user_msgs[idx + 1].content[:300]
                     if idx + 1 < len(sem.per_message):
                         next_cls = sem.per_message[idx + 1]
